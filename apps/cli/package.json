@@ -1,0 +1,29 @@
+{
+  "name": "@equitylens/cli",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "elens": "./dist/index.js"
+  },
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "clean": "rm -rf dist",
+    "start": "node dist/index.js"
+  },
+  "dependencies": {
+    "@equitylens/core": "workspace:*",
+    "@equitylens/data": "workspace:*",
+    "@equitylens/engine": "workspace:*",
+    "@equitylens/report": "workspace:*",
+    "@equitylens/store": "workspace:*",
+    "commander": "^14.0.0",
+    "dotenv": "^16.4.0"
+  },
+  "devDependencies": {
+    "@types/node": "^25.5.0",
+    "tsup": "^8.3.0",
+    "typescript": "^5.7.0"
+  }
+}
