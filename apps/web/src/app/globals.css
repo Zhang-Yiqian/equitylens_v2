@@ -1,0 +1,108 @@
+@import url('https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600;700&family=Fira+Sans:wght@300;400;500;600;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --radius: 0.5rem;
+    --background: 248 250 252;
+    --foreground: 30 58 138;
+    --card: 255 255 255;
+    --card-foreground: 30 58 138;
+    --border: 219 234 254;
+    --ring: 30 64 175;
+  }
+
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-slate-800 font-sans antialiased;
+    font-size: 16px;
+    line-height: 1.6;
+  }
+
+  /* Tabular numbers for financial data */
+  .tabular-nums {
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: "tnum";
+  }
+
+  /* Focus ring - WCAG compliant */
+  :focus-visible {
+    @apply outline-none ring-2 ring-primary ring-offset-2;
+  }
+}
+
+@layer components {
+  /* Signal badge variants */
+  .badge-buy {
+    @apply bg-emerald-50 text-emerald-700 border border-emerald-200;
+  }
+  .badge-watch {
+    @apply bg-amber-50 text-amber-700 border border-amber-200;
+  }
+  .badge-avoid {
+    @apply bg-red-50 text-red-700 border border-red-200;
+  }
+  .badge-bullish {
+    @apply bg-emerald-50 text-emerald-700;
+  }
+  .badge-bearish {
+    @apply bg-red-50 text-red-700;
+  }
+  .badge-neutral {
+    @apply bg-slate-100 text-slate-600;
+  }
+  .badge-skipped {
+    @apply bg-slate-50 text-slate-400;
+  }
+
+  /* Financial data number style */
+  .num {
+    @apply font-mono tabular-nums;
+  }
+
+  .num-positive {
+    @apply font-mono tabular-nums text-emerald-600;
+  }
+
+  .num-negative {
+    @apply font-mono tabular-nums text-red-600;
+  }
+
+  /* Skeleton shimmer */
+  .skeleton {
+    @apply animate-pulse bg-slate-200 rounded;
+  }
+}
+
+@layer utilities {
+  /* Subtle grid lines for charts */
+  .chart-grid {
+    color: rgb(226 232 240); /* slate-200 */
+  }
+}
+
+/* Prose for markdown report rendering */
+.report-prose h2 {
+  @apply text-lg font-semibold text-slate-900 mt-6 mb-3 pb-1 border-b border-slate-100;
+}
+.report-prose h3 {
+  @apply text-base font-semibold text-slate-800 mt-4 mb-2;
+}
+.report-prose p {
+  @apply text-sm text-slate-700 leading-relaxed mb-3;
+}
+.report-prose ul {
+  @apply list-disc list-inside text-sm text-slate-700 space-y-1 mb-3;
+}
+.report-prose blockquote {
+  @apply border-l-4 border-primary/30 pl-3 italic text-slate-600 text-sm my-3;
+}
+.report-prose strong {
+  @apply font-semibold text-slate-900;
+}

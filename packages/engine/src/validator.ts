@@ -1,4 +1,4 @@
-import type { InflectionAnalysis, Evidence } from '@equitylens/core';
+import type { InflectionAnalysis, CrossValidationAnalysis, Evidence } from '@equitylens/core';
 
 interface ValidationResult {
   isValid: boolean;
@@ -11,6 +11,74 @@ interface ValidationResult {
     quote: string;
     reason: string;
   }>;
+}
+
+interface MultiSourceTexts {
+  financialText: string;
+  tenKText?: string;
+  newsText?: string;
+}
+
+/**
+ * Validate evidence citations for cross-validation analysis.
+ * Routes each evidence item to the appropriate source text based on evidence.source.
+ */
+export function validateCrossEvidence(
+  analysis: CrossValidationAnalysis,
+  sources: MultiSourceTexts,
+): ValidationResult {
+  const financialLower = sources.financialText.toLowerCase();
+  const tenKLower = (sources.tenKText ?? '').toLowerCase();
+  const newsLower = (sources.newsText ?? '').toLowerCase();
+
+  const getSourceText = (ev: Evidence): string => {
+    if (ev.source === '10k') return tenKLower;
+    if (ev.source === 'news') return newsLower;
+    return financialLower; // 'financial' | 'transcript' | default
+  };
+
+  const failures: ValidationResult['failures'] = [];
+  let totalEvidence = 0;
+  let verifiedCount = 0;
+  let skippedCount = 0;
+
+  for (const dim of analysis.dimensions) {
+    if (dim.signal === 'skipped') { skippedCount++; continue; }
+    for (const ev of dim.evidence) {
+      totalEvidence++;
+      const result = verifyQuote(ev, getSourceText(ev));
+      if (result.verified) verifiedCount++;
+      else failures.push({ dimensionId: dim.id, quote: ev.quote.substring(0, 100), reason: result.reason });
+    }
+  }
+
+  for (const cat of analysis.catalysts) {
+    for (const ev of cat.evidence) {
+      totalEvidence++;
+      const result = verifyQuote(ev, getSourceText(ev));
+      if (result.verified) verifiedCount++;
+      else failures.push({ dimensionId: 'catalyst', quote: ev.quote.substring(0, 100), reason: result.reason });
+    }
+  }
+
+  for (const risk of analysis.risks) {
+    for (const ev of risk.evidence) {
+      totalEvidence++;
+      const result = verifyQuote(ev, getSourceText(ev));
+      if (result.verified) verifiedCount++;
+      else failures.push({ dimensionId: 'risk', quote: ev.quote.substring(0, 100), reason: result.reason });
+    }
+  }
+
+  const failedCount = totalEvidence - verifiedCount;
+  return {
+    isValid: failedCount === 0 || totalEvidence === 0 || (failedCount / totalEvidence) < 0.2,
+    totalEvidence,
+    verifiedCount,
+    failedCount,
+    skippedCount,
+    failures,
+  };
 }
 
 export function validateEvidence(

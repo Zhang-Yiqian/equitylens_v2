@@ -1,5 +1,29 @@
 import { sqliteTable, text, integer, real, uniqueIndex, index } from 'drizzle-orm/sqlite-core';
 
+export const newsCache = sqliteTable('news_cache', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  ticker: text('ticker').notNull(),
+  title: text('title').notNull(),
+  publisher: text('publisher').notNull().default(''),
+  link: text('link').notNull(),
+  publishedAt: text('published_at').notNull(),
+  fetchedAt: text('fetched_at').notNull(),
+}, (table) => [
+  index('idx_news_cache_ticker').on(table.ticker),
+]);
+
+export const tenKCache = sqliteTable('ten_k_cache', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  ticker: text('ticker').notNull(),
+  item1Business: text('item1_business'),
+  item1ARiskFactors: text('item1a_risk_factors'),
+  filingDate: text('filing_date').notNull(),
+  documentUrl: text('document_url').notNull(),
+  fetchedAt: text('fetched_at').notNull(),
+}, (table) => [
+  uniqueIndex('uq_ten_k_cache_ticker').on(table.ticker),
+]);
+
 export const financialSnapshots = sqliteTable('financial_snapshots', {
   id: integer('id').primaryKey({ autoIncrement: true }),
   ticker: text('ticker').notNull(),
@@ -55,6 +79,10 @@ export const analyses = sqliteTable('analyses', {
   catalystsJson: text('catalysts_json').notNull(),
   risksJson: text('risks_json').notNull(),
   trackingMetricsJson: text('tracking_metrics_json').notNull(),
+  // Cross-validation v1 fields (nullable for backwards compatibility)
+  conclusion: text('conclusion'),
+  landscapeAnalysis: text('landscape_analysis'),
+  riskWarning: text('risk_warning'),
   rawLlmOutput: text('raw_llm_output'),
   promptTokens: integer('prompt_tokens'),
   completionTokens: integer('completion_tokens'),

@@ -4,7 +4,7 @@ import type { TickerInfo } from '../constants/tickers.js';
 
 describe('MVP_TICKERS', () => {
   it('has exactly 10 entries', () => {
-    expect(MVP_TICKERS).toHaveLength(10);
+    expect(MVP_TICKERS).toHaveLength(10);  // APP, PLTR, CRWD, CEG, VST, ASTS, LITE, CIEN, WDC, MU
   });
 
   it('each ticker has required fields (ticker, name, sector, node)', () => {
@@ -27,17 +27,17 @@ describe('MVP_TICKERS', () => {
     expect(new Set(tickers).size).toBe(tickers.length);
   });
 
-  it('contains expected AI/semiconductor tickers', () => {
+  it('contains expected AI infrastructure tickers', () => {
     const tickers = MVP_TICKERS.map(t => t.ticker);
-    expect(tickers).toContain('NVDA');
-    expect(tickers).toContain('AMD');
-    expect(tickers).toContain('AVGO');
-    expect(tickers).toContain('MSFT');
-    expect(tickers).toContain('GOOGL');
-    expect(tickers).toContain('AMZN');
+    expect(tickers).toContain('APP');
     expect(tickers).toContain('PLTR');
-    expect(tickers).toContain('SMCI');
-    expect(tickers).toContain('VRT');
+    expect(tickers).toContain('CRWD');
+    expect(tickers).toContain('CEG');
+    expect(tickers).toContain('VST');
+    expect(tickers).toContain('ASTS');
+    expect(tickers).toContain('LITE');
+    expect(tickers).toContain('CIEN');
+    expect(tickers).toContain('WDC');
     expect(tickers).toContain('MU');
   });
 });
@@ -48,8 +48,8 @@ describe('MVP_TICKER_SET', () => {
     expect(MVP_TICKER_SET.size).toBe(10);
   });
 
-  it('contains NVDA', () => {
-    expect(MVP_TICKER_SET.has('NVDA')).toBe(true);
+  it('contains APP', () => {
+    expect(MVP_TICKER_SET.has('APP')).toBe(true);
   });
 
   it('contains PLTR', () => {
@@ -59,6 +59,7 @@ describe('MVP_TICKER_SET', () => {
   it('does not contain non-MVP tickers', () => {
     expect(MVP_TICKER_SET.has('AAPL')).toBe(false);
     expect(MVP_TICKER_SET.has('TSLA')).toBe(false);
+    expect(MVP_TICKER_SET.has('NVDA')).toBe(false);  // old ticker, not in new list
     expect(MVP_TICKER_SET.has('')).toBe(false);
   });
 

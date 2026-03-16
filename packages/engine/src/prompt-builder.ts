@@ -2,6 +2,7 @@ import type OpenAI from 'openai';
 import type { FinancialSnapshot } from '@equitylens/core';
 import { formatFinancialValue } from '@equitylens/core';
 import { INFLECTION_PROMPT_V1 } from './prompt-templates/inflection-v1.js';
+import { CROSS_VALIDATION_PROMPT_V1 } from './prompt-templates/cross-validation-v1.js';
 
 export function buildPromptMessages(
   current: FinancialSnapshot,
@@ -57,6 +58,34 @@ function formatPctChange(cur: number | null | undefined, prev: number | null | u
   if (cur == null || prev == null || prev === 0) return 'N/A';
   const pct = ((cur - prev) / Math.abs(prev)) * 100;
   return `${pct >= 0 ? '+' : ''}${pct.toFixed(1)}%`;
+}
+
+/**
+ * Build messages for the cross-validation-v1 prompt.
+ * Requires three pre-formatted text blocks: 10-K, financial table, and news.
+ */
+export function buildCrossValidationMessages(
+  current: FinancialSnapshot,
+  historicalQuarters: FinancialSnapshot[] = [],
+  annualSnapshots: FinancialSnapshot[] = [],
+  tenKText: string = '暂无10-K年报数据',
+  newsText: string = '暂无近期新闻数据',
+): OpenAI.Chat.ChatCompletionMessageParam[] {
+  const financialText = formatFinancialTable(current, historicalQuarters, annualSnapshots);
+
+  const userMessage = CROSS_VALIDATION_PROMPT_V1.buildUserMessage(
+    current.ticker,
+    current.year,
+    current.quarter,
+    tenKText,
+    financialText,
+    newsText,
+  );
+
+  return [
+    { role: 'system', content: CROSS_VALIDATION_PROMPT_V1.system },
+    { role: 'user', content: userMessage },
+  ];
 }
 
 /**

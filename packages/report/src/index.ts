@@ -1,1 +1,1 @@
-export { renderMarkdownReport } from './markdown-renderer.js';
+export { renderMarkdownReport, renderCrossValidationReport } from './markdown-renderer.js';

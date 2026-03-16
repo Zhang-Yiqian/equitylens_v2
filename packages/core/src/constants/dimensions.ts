@@ -30,3 +30,34 @@ export const DIMENSIONS: DimensionDef[] = [
 ];
 
 export const DIMENSION_MAP = new Map(DIMENSIONS.map(d => [d.id, d]));
+
+/**
+ * 8-Dimension Cross-Validation Matrix (PRD v1.0)
+ * Categories: A (10-K竞争格局), B (财务异动), C (新闻事件)
+ */
+export interface CrossDimensionDef {
+  id: string;
+  name: string;
+  nameZh: string;
+  category: 'A' | 'B' | 'C';
+  categoryName: string;
+  description: string;
+}
+
+export const CROSS_DIMENSIONS: CrossDimensionDef[] = [
+  // [A] 10-K 竞争格局基线
+  { id: 'A1', name: '10-K Moat Verification', nameZh: '护城河有效性验证', category: 'A', categoryName: '10-K竞争格局基线', description: '10-K Business 描述的竞争优势是否在财务数据中得到验证（毛利率/市场份额稳定性）' },
+  { id: 'A2', name: 'Risk Factor Falsification', nameZh: '风险因子证伪', category: 'A', categoryName: '10-K竞争格局基线', description: '10-K Risk Factors 中列出的风险，当前是否已有实质性恶化证据，还是依然可控' },
+
+  // [B] 财务异动侦测
+  { id: 'B1', name: 'Operating Leverage Release', nameZh: '经营杠杆释放', category: 'B', categoryName: '财务异动侦测', description: '收入增速是否开始超越成本增速，经营杠杆是否进入正向释放阶段' },
+  { id: 'B2', name: 'Cash Flow / CAPEX Scissors', nameZh: '现金流/CAPEX剪刀差', category: 'B', categoryName: '财务异动侦测', description: '经营现金流增长同时CAPEX趋稳/下降，FCF加速改善的剪刀差效应' },
+  { id: 'B3', name: 'Margin Step Change', nameZh: '利润率阶跃', category: 'B', categoryName: '财务异动侦测', description: '毛利率/净利率出现超越历史区间的阶跃式改善，而非线性渐进' },
+
+  // [C] 新闻事件验证
+  { id: 'C1', name: 'Large Order & Product Delivery', nameZh: '大单与新品兑现', category: 'C', categoryName: '新闻事件验证', description: '近期新闻中大订单/新产品发布是否与财务数据的增长拐点相互印证' },
+  { id: 'C2', name: 'Industry Chain Resonance', nameZh: '产业链共振', category: 'C', categoryName: '新闻事件验证', description: '上下游产业链伙伴（客户/供应商）的新闻动态是否与本公司逻辑共振' },
+  { id: 'C3', name: 'Cost Reduction Execution', nameZh: '降本增效落地', category: 'C', categoryName: '新闻事件验证', description: '管理层曾承诺的降本举措是否在财务数据和新闻事件中看到落地证据' },
+];
+
+export const CROSS_DIMENSION_MAP = new Map(CROSS_DIMENSIONS.map(d => [d.id, d]));

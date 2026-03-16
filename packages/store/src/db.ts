@@ -7,7 +7,7 @@ import { dirname } from 'node:path';
 let db: ReturnType<typeof drizzle> | null = null;
 let sqlite: Database.Database | null = null;
 
-const DEFAULT_DB_PATH = './data/equitylens.db';
+const DEFAULT_DB_PATH = process.env.DATABASE_PATH || './data/equitylens.db';
 
 export function getDb(dbPath: string = DEFAULT_DB_PATH): ReturnType<typeof drizzle> {
   if (db) return db;
@@ -92,6 +92,9 @@ function initTables(sqlite: Database.Database): void {
       catalysts_json TEXT NOT NULL,
       risks_json TEXT NOT NULL,
       tracking_metrics_json TEXT NOT NULL,
+      conclusion TEXT,
+      landscape_analysis TEXT,
+      risk_warning TEXT,
       raw_llm_output TEXT,
       prompt_tokens INTEGER,
       completion_tokens INTEGER,
@@ -114,5 +117,59 @@ function initTables(sqlite: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_snapshots_ticker ON financial_snapshots(ticker, year, quarter);
     CREATE INDEX IF NOT EXISTS idx_transcripts_ticker ON transcripts(ticker, year, quarter);
     CREATE INDEX IF NOT EXISTS idx_analyses_ticker ON analyses(ticker, year, quarter);
+  `);
+
+  // Migrate existing analyses table: add cross-validation columns if missing
+  const existingCols = new Set(
+    (sqlite.pragma('table_info(analyses)') as Array<{ name: string }>).map(r => r.name)
+  );
+  for (const [col, def] of [
+    ['conclusion', 'TEXT'],
+    ['landscape_analysis', 'TEXT'],
+    ['risk_warning', 'TEXT'],
+  ] as const) {
+    if (!existingCols.has(col)) {
+      sqlite.exec(`ALTER TABLE analyses ADD COLUMN ${col} ${def}`);
+    }
+  }
+
+  // Migrate existing financial_snapshots: add Phase 2 computed columns if missing
+  const snapCols = new Set(
+    (sqlite.pragma('table_info(financial_snapshots)') as Array<{ name: string }>).map(r => r.name)
+  );
+  for (const [col, def] of [
+    ['revenue_growth_yoy', 'REAL'],
+    ['gross_margin_pct', 'REAL'],
+    ['fcf_margin_pct', 'REAL'],
+    ['deferred_revenue', 'REAL'],
+    ['rpo', 'REAL'],
+  ] as const) {
+    if (!snapCols.has(col)) {
+      sqlite.exec(`ALTER TABLE financial_snapshots ADD COLUMN ${col} ${def}`);
+    }
+  }
+
+  // Ensure Phase 2 tables exist (news_cache, ten_k_cache)
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS news_cache (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      ticker TEXT NOT NULL,
+      title TEXT NOT NULL,
+      publisher TEXT NOT NULL DEFAULT '',
+      link TEXT NOT NULL,
+      published_at TEXT NOT NULL,
+      fetched_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_news_cache_ticker ON news_cache(ticker);
+
+    CREATE TABLE IF NOT EXISTS ten_k_cache (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      ticker TEXT NOT NULL UNIQUE,
+      item1_business TEXT,
+      item1a_risk_factors TEXT,
+      filing_date TEXT NOT NULL,
+      document_url TEXT NOT NULL,
+      fetched_at TEXT NOT NULL
+    );
   `);
 }
