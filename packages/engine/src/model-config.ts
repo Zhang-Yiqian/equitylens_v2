@@ -6,6 +6,18 @@ export interface ModelConfig {
 }
 
 export const MODEL_REGISTRY = {
+  'gemini-3-flash-preview': {
+    id: 'google/gemini-3-flash-preview',
+    contextWindow: 1_048_576,
+    maxOutput: 65_536,
+    pricing: { input: 0.50, output: 3.00 },
+  },
+  'gemini-3.1-flash-lite-preview': {
+    id: 'google/gemini-3.1-flash-lite-preview',
+    contextWindow: 100_000,
+    maxOutput: 16_384,
+    pricing: { input: 0.10, output: 0.40 },
+  },
   'gemini-2.5-pro': {
     id: 'google/gemini-2.5-pro-preview-03-25',
     contextWindow: 1_000_000,
@@ -40,7 +52,7 @@ export const MODEL_REGISTRY = {
 
 export type ModelKey = keyof typeof MODEL_REGISTRY;
 
-export const DEFAULT_MODEL: ModelKey = 'gemini-3.1-pro';
+export const DEFAULT_MODEL: ModelKey = 'gemini-3-flash-preview';
 
 export function isValidModel(key: string): key is ModelKey {
   return key in MODEL_REGISTRY;

@@ -35,6 +35,9 @@ importers:
       '@equitylens/store':
         specifier: workspace:*
         version: link:../../packages/store
+      '@equitylens/universe':
+        specifier: workspace:*
+        version: link:../../packages/universe
       commander:
         specifier: ^14.0.0
         version: 14.0.3
@@ -239,6 +242,40 @@ importers:
       typescript:
         specifier: ^5.7.0
         version: 5.9.3
+
+  packages/universe:
+    dependencies:
+      '@equitylens/core':
+        specifier: workspace:*
+        version: link:../core
+      '@equitylens/data':
+        specifier: workspace:*
+        version: link:../data
+      '@equitylens/engine':
+        specifier: workspace:*
+        version: link:../engine
+      '@equitylens/store':
+        specifier: workspace:*
+        version: link:../store
+      openai:
+        specifier: ^4.77.0
+        version: 4.104.0(zod@3.25.76)
+      zod:
+        specifier: ^3.24.0
+        version: 3.25.76
+    devDependencies:
+      '@types/node':
+        specifier: ^25.5.0
+        version: 25.5.0
+      tsup:
+        specifier: ^8.3.0
+        version: 8.5.1(jiti@1.21.7)(postcss@8.5.8)(typescript@5.9.3)
+      typescript:
+        specifier: ^5.7.0
+        version: 5.9.3
+      vitest:
+        specifier: ^2.1.0
+        version: 2.1.9(@types/node@25.5.0)
 
 packages:
 

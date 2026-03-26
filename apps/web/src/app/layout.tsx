@@ -42,6 +42,9 @@ export default function RootLayout({
                 <a href="/" className="px-3 py-1.5 text-sm text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-md transition-colors cursor-pointer">
                   自选股看板
                 </a>
+                <a href="/funnel" className="px-3 py-1.5 text-sm text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-md transition-colors cursor-pointer">
+                  全市场扫描
+                </a>
                 <span className="text-slate-300 text-xs">|</span>
                 <a href="/api/health" className="px-3 py-1.5 text-sm text-slate-400 hover:text-slate-600 rounded-md transition-colors cursor-pointer" title="API状态">
                   API

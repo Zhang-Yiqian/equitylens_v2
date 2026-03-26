@@ -102,3 +102,78 @@ export const reports = sqliteTable('reports', {
   filePath: text('file_path').notNull(),
   generatedAt: text('generated_at').notNull(),
 });
+
+// ── Universe Funnel Engine ────────────────────────────────────────────────────
+
+export const universeScans = sqliteTable('universe_scans', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  scanId: text('scan_id').notNull().unique(),
+  mode: text('mode').notNull(), // 'full' | 'incremental' | 'dry_run'
+  status: text('status').notNull(), // 'running' | 'completed' | 'failed' | 'cancelled'
+  startedAt: text('started_at').notNull(),
+  completedAt: text('completed_at'),
+  totalNasdaq: integer('total_nasdaq').notNull().default(0),
+  afterBlacklist: integer('after_blacklist').notNull().default(0),
+  l2Matches: integer('l2_matches').notNull().default(0),
+  l3Classified: integer('l3_classified').notNull().default(0),
+  afterHardFilter: integer('after_hard_filter').notNull().default(0),
+  afterCompliance: integer('after_compliance').notNull().default(0),
+  aiCore: integer('ai_core').notNull().default(0),
+  aiAdjacent: integer('ai_adjacent').notNull().default(0),
+  nonCore: integer('non_core').notNull().default(0),
+  unknown: integer('unknown').notNull().default(0),
+  diffAdded: integer('diff_added'),
+  diffRemoved: integer('diff_removed'),
+  errorMessage: text('error_message'),
+  l3TokensUsed: integer('l3_tokens_used'),
+}, (table) => [
+  index('idx_universe_scans_status').on(table.status),
+  index('idx_universe_scans_started').on(table.startedAt),
+]);
+
+export const universeCache = sqliteTable('universe_cache', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  ticker: text('ticker').notNull().unique(),
+  companyName: text('company_name').notNull(),
+  source: text('source').notNull(), // 'nasdaq_listed' | 'nasdaq_other' | 'manual'
+  market: text('market'),
+  // L2 match
+  l2Matched: integer('l2_matched').notNull().default(0), // 0/1 boolean
+  l2MatchedKeywords: text('l2_matched_keywords'),  // JSON array string
+  l2MatchedCategories: text('l2_matched_categories'), // JSON array string
+  // L3 classification
+  aiStatus: text('ai_status'), // 'core' | 'adjacent' | 'non_core' | 'unknown' | 'api_failed'
+  supplyChainTag: text('supply_chain_tag'),
+  l3Confidence: integer('l3_confidence'),
+  l3Reasoning: text('l3_reasoning'),
+  l3Evidence: text('l3_evidence'),
+  /** 1 if L3 API call failed and fell back to unknown; null or 0 if real classification */
+  l3ApiFailed: integer('l3_api_failed').notNull().default(0),
+  // Hard filter
+  hardFilterPassed: integer('hard_filter_passed'), // 0/1/null
+  marketCap: real('market_cap'),
+  price: real('price'),
+  avgDollarVolume30d: real('avg_dollar_volume_30d'),
+  ttmRevenue: real('ttm_revenue'),
+  // Compliance
+  complianceChecked: integer('compliance_checked').notNull().default(0), // 0/1
+  hasGoingConcern: integer('has_going_concern'), // 0/1/null
+  hasAuditorResignation: integer('has_auditor_resignation'), // 0/1/null
+  // Metadata
+  lastScanId: text('last_scan_id'),
+  fetchedAt: text('fetched_at').notNull(),
+}, (table) => [
+  index('idx_universe_cache_ticker').on(table.ticker),
+  index('idx_universe_cache_ai_status').on(table.aiStatus),
+]);
+
+export const universeBlacklist = sqliteTable('universe_blacklist', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  ticker: text('ticker').notNull().unique(),
+  reason: text('reason').notNull(), // 'etf_fund_trust' | 'test_issue' | 'compliance_going_concern' | 'compliance_auditor_resignation' | 'manual'
+  addedAt: text('added_at').notNull(),
+  source: text('source'),
+}, (table) => [
+  index('idx_universe_blacklist_ticker').on(table.ticker),
+  index('idx_universe_blacklist_reason').on(table.reason),
+]);

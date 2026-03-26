@@ -25,3 +25,7 @@ Thumbs.db
 
 # Claude Code local settings
 .claude/
+
+# Next.js build output
+.next/
+next-env.d.ts

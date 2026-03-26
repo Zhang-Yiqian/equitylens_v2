@@ -1,6 +1,10 @@
 import OpenAI from 'openai';
+import https from 'node:https';
+import { readFileSync, existsSync } from 'node:fs';
 import { LLMError } from '@equitylens/core';
 import { MODEL_REGISTRY, DEFAULT_MODEL, type ModelKey } from './model-config.js';
+
+const LLM_REQUEST_TIMEOUT_MS = 60_000; // 60s per request — Gemini Flash should respond in <10s
 
 export class LlmClient {
   private client: OpenAI;
@@ -12,9 +16,17 @@ export class LlmClient {
       throw new LLMError('OPENROUTER_API_KEY not configured', modelKey);
     }
 
+    // macOS TLS fix: use system CA bundle for HTTPS agent to avoid certificate validation errors
+    const caCertPath = process.env.NODE_EXTRA_CA_CERTS;
+    const httpsAgent = caCertPath && existsSync(caCertPath)
+      ? new https.Agent({ ca: readFileSync(caCertPath), keepAlive: true })
+      : new https.Agent({ keepAlive: true });
+
     this.client = new OpenAI({
       baseURL: 'https://openrouter.ai/api/v1',
       apiKey: key,
+      httpAgent: httpsAgent,
+      timeout: LLM_REQUEST_TIMEOUT_MS,
       defaultHeaders: {
         'HTTP-Referer': 'https://github.com/equitylens',
         'X-Title': 'EquityLens',

@@ -6,7 +6,7 @@ import {
   SecEdgarClient, fetchCompanyFacts, assembleFinancialData,
   DataCache, countNonNullFields,
 } from '@equitylens/data';
-import { formatFinancialTable } from '@equitylens/engine';
+import { formatFinancialTable } from '@equitylens/data';
 import { getDb, getAllFinancialSnapshots } from '@equitylens/store';
 
 export const fetchCommand = new Command('fetch')

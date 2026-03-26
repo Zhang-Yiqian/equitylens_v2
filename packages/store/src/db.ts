@@ -149,7 +149,82 @@ function initTables(sqlite: Database.Database): void {
     }
   }
 
-  // Ensure Phase 2 tables exist (news_cache, ten_k_cache)
+  // ── Universe Funnel Engine ────────────────────────────────────────────────
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS universe_scans (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      scan_id TEXT NOT NULL UNIQUE,
+      mode TEXT NOT NULL,
+      status TEXT NOT NULL,
+      started_at TEXT NOT NULL,
+      completed_at TEXT,
+      total_nasdaq INTEGER NOT NULL DEFAULT 0,
+      after_blacklist INTEGER NOT NULL DEFAULT 0,
+      l2_matches INTEGER NOT NULL DEFAULT 0,
+      l3_classified INTEGER NOT NULL DEFAULT 0,
+      after_hard_filter INTEGER NOT NULL DEFAULT 0,
+      after_compliance INTEGER NOT NULL DEFAULT 0,
+      ai_core INTEGER NOT NULL DEFAULT 0,
+      ai_adjacent INTEGER NOT NULL DEFAULT 0,
+      non_core INTEGER NOT NULL DEFAULT 0,
+      unknown INTEGER NOT NULL DEFAULT 0,
+      diff_added INTEGER,
+      diff_removed INTEGER,
+      error_message TEXT,
+      l3_tokens_used INTEGER
+    );
+    CREATE INDEX IF NOT EXISTS idx_universe_scans_status ON universe_scans(status);
+    CREATE INDEX IF NOT EXISTS idx_universe_scans_started ON universe_scans(started_at);
+
+    CREATE TABLE IF NOT EXISTS universe_cache (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      ticker TEXT NOT NULL UNIQUE,
+      company_name TEXT NOT NULL,
+      source TEXT NOT NULL,
+      market TEXT,
+      l2_matched INTEGER NOT NULL DEFAULT 0,
+      l2_matched_keywords TEXT,
+      l2_matched_categories TEXT,
+      ai_status TEXT,
+      supply_chain_tag TEXT,
+      l3_confidence INTEGER,
+      l3_reasoning TEXT,
+      l3_evidence TEXT,
+      l3_api_failed INTEGER NOT NULL DEFAULT 0,
+      hard_filter_passed INTEGER,
+      market_cap REAL,
+      price REAL,
+      avg_dollar_volume_30d REAL,
+      ttm_revenue REAL,
+      compliance_checked INTEGER NOT NULL DEFAULT 0,
+      has_going_concern INTEGER,
+      has_auditor_resignation INTEGER,
+      last_scan_id TEXT,
+      fetched_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_universe_cache_ticker ON universe_cache(ticker);
+    CREATE INDEX IF NOT EXISTS idx_universe_cache_ai_status ON universe_cache(ai_status);
+
+    CREATE TABLE IF NOT EXISTS universe_blacklist (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      ticker TEXT NOT NULL UNIQUE,
+      reason TEXT NOT NULL,
+      added_at TEXT NOT NULL,
+      source TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_universe_blacklist_ticker ON universe_blacklist(ticker);
+    CREATE INDEX IF NOT EXISTS idx_universe_blacklist_reason ON universe_blacklist(reason);
+  `);
+
+  // ── Migration: add l3_api_failed column if missing (added after initial deploy) ──
+  const cacheCols = new Set(
+    (sqlite.pragma('table_info(universe_cache)') as Array<{ name: string }>).map(r => r.name)
+  );
+  if (!cacheCols.has('l3_api_failed')) {
+    sqlite.exec(`ALTER TABLE universe_cache ADD COLUMN l3_api_failed INTEGER NOT NULL DEFAULT 0`);
+  }
+
+  // ── Ensure Phase 2 tables exist (news_cache, ten_k_cache) ─────────────────
   sqlite.exec(`
     CREATE TABLE IF NOT EXISTS news_cache (
       id INTEGER PRIMARY KEY AUTOINCREMENT,

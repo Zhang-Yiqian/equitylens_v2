@@ -2,8 +2,8 @@ import 'dotenv/config';
 import { Command } from 'commander';
 import { listCommand } from './commands/list.js';
 import { fetchCommand } from './commands/fetch.js';
-import { analyzeCommand } from './commands/analyze.js';
-import { batchCommand } from './commands/batch.js';
+import { scanCommand } from './commands/scan.js';
+import { prefetchCommand } from './commands/prefetch.js';
 
 const program = new Command();
 
@@ -14,7 +14,7 @@ program
 
 program.addCommand(listCommand);
 program.addCommand(fetchCommand);
-program.addCommand(analyzeCommand);
-program.addCommand(batchCommand);
+program.addCommand(scanCommand);
+program.addCommand(prefetchCommand);
 
 program.parse();

@@ -1,6 +1,6 @@
-import { eq, and, desc } from 'drizzle-orm';
+import { eq, and, desc, inArray } from 'drizzle-orm';
 import { getDb } from './db.js';
-import { financialSnapshots, transcripts, analyses, reports, newsCache, tenKCache } from './schema.js';
+import { financialSnapshots, transcripts, analyses, reports, newsCache, tenKCache, universeScans, universeCache, universeBlacklist } from './schema.js';
 
 export function getFinancialSnapshot(ticker: string, year: number, quarter: number) {
   const db = getDb();
@@ -121,4 +121,96 @@ export function upsertTenKCache(data: typeof tenKCache.$inferInsert) {
 export function saveCrossValidationAnalysis(data: typeof analyses.$inferInsert) {
   const db = getDb();
   return db.insert(analyses).values(data).run();
+}
+
+// ── Universe Funnel Engine ─────────────────────────────────────────────────────
+
+export function upsertUniverseScan(data: typeof universeScans.$inferInsert) {
+  const db = getDb();
+  return db.insert(universeScans)
+    .values(data)
+    .onConflictDoUpdate({
+      target: [universeScans.scanId],
+      set: { ...data },
+    })
+    .run();
+}
+
+export function updateUniverseScan(id: number, data: Partial<typeof universeScans.$inferInsert>) {
+  const db = getDb();
+  return db.update(universeScans).set(data).where(eq(universeScans.id, id)).run();
+}
+
+export function getLatestCompletedScan() {
+  const db = getDb();
+  return db.select().from(universeScans)
+    .where(eq(universeScans.status, 'completed'))
+    .orderBy(desc(universeScans.completedAt))
+    .limit(1)
+    .get();
+}
+
+export function getUniverseScanById(scanId: string) {
+  const db = getDb();
+  return db.select().from(universeScans)
+    .where(eq(universeScans.scanId, scanId))
+    .get();
+}
+
+export function upsertUniverseCache(data: typeof universeCache.$inferInsert) {
+  const db = getDb();
+  return db.insert(universeCache)
+    .values(data)
+    .onConflictDoUpdate({
+      target: [universeCache.ticker],
+      set: { ...data },
+    })
+    .run();
+}
+
+export function getUniverseCache(ticker: string) {
+  const db = getDb();
+  return db.select().from(universeCache)
+    .where(eq(universeCache.ticker, ticker))
+    .get();
+}
+
+export function getAllUniverseCache() {
+  const db = getDb();
+  return db.select().from(universeCache).all();
+}
+
+export function getUniverseCacheByStatus(aiStatus: string) {
+  const db = getDb();
+  return db.select().from(universeCache)
+    .where(eq(universeCache.aiStatus, aiStatus))
+    .all();
+}
+
+export function upsertBlacklist(data: typeof universeBlacklist.$inferInsert) {
+  const db = getDb();
+  return db.insert(universeBlacklist)
+    .values(data)
+    .onConflictDoUpdate({
+      target: [universeBlacklist.ticker],
+      set: { ...data },
+    })
+    .run();
+}
+
+export function getBlacklist(ticker?: string) {
+  const db = getDb();
+  if (ticker) {
+    return db.select().from(universeBlacklist)
+      .where(eq(universeBlacklist.ticker, ticker))
+      .get();
+  }
+  return db.select().from(universeBlacklist).all();
+}
+
+export function getAllCachedTickers(): string[] {
+  const db = getDb();
+  return db.select({ ticker: universeCache.ticker }).from(universeCache)
+    .all()
+    .map(r => r.ticker);
 }
