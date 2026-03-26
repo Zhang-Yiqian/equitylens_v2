@@ -18,6 +18,7 @@
     "@equitylens/engine": "workspace:*",
     "@equitylens/report": "workspace:*",
     "@equitylens/store": "workspace:*",
+    "@equitylens/universe": "workspace:*",
     "commander": "^14.0.0",
     "dotenv": "^16.4.0"
   },
