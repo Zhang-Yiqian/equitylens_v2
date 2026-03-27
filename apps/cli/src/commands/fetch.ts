@@ -9,11 +9,14 @@ import {
 import { formatFinancialTable } from '@equitylens/data';
 import { getDb, getAllFinancialSnapshots } from '@equitylens/store';
 
+const CURRENT_YEAR = new Date().getFullYear();
+
 export const fetchCommand = new Command('fetch')
   .description('Fetch and cache financial data for a ticker')
   .argument('<ticker>', 'Stock ticker symbol')
-  .option('-q, --quarter <number>', 'Fiscal quarter (1-4)', '4')
-  .option('-y, --year <number>', 'Fiscal year', '2024')
+  .option('-q, --quarter <number>', 'Fiscal quarter (1-4, 0=annual)', '4')
+  .option('-y, --year <number>', 'Fiscal year', String(CURRENT_YEAR - 1))
+  .option('--history <years>', 'Fetch N years of history (1y=4q, 2y=8q, 3y=12q + annuals)', '0')
   .option('--force-refresh', 'Bypass cache and re-fetch from APIs', false)
   .option('--all', 'Show all cached periods as a multi-quarter table (no fetch)', false)
   .action(async (ticker: string, options) => {
@@ -37,25 +40,128 @@ export const fetchCommand = new Command('fetch')
         ticker: row.ticker,
         year: row.year,
         quarter: row.quarter,
-        revenue: row.revenue,
-        netIncome: row.netIncome,
-        grossMargin: row.grossMargin,
-        operatingCashFlow: row.operatingCashFlow,
-        freeCashFlow: row.freeCashFlow,
-        rdExpense: row.rdExpense,
-        sharesOutstanding: row.sharesOutstanding,
-        totalAssets: row.totalAssets,
-        totalLiabilities: row.totalLiabilities,
-        eps: row.eps,
-        marketCap: row.marketCap,
-        peRatio: row.peRatio,
-        revenueGrowthYoY: row.revenueGrowthYoY,
-        grossMarginPct: row.grossMarginPct,
-        fcfMarginPct: row.fcfMarginPct,
-        deferredRevenue: row.deferredRevenue,
-        rpo: row.rpo,
         source: row.source as 'sec' | 'yahoo' | 'merged',
         fetchedAt: row.fetchedAt,
+        fieldSources: row.fieldSources ? JSON.parse(row.fieldSources) : null,
+        // Income Statement
+        revenue: row.revenue,
+        costOfRevenue: row.costOfRevenue,
+        grossMargin: row.grossMargin,
+        operatingExpenses: row.operatingExpenses,
+        sgaExpense: row.sgaExpense,
+        rdExpense: row.rdExpense,
+        sbcExpense: row.sbcExpense,
+        otherIncomeExpense: row.otherIncomeExpense,
+        depreciationAndAmortization: row.depreciationAndAmortization,
+        operatingIncome: row.operatingIncome,
+        interestExpense: row.interestExpense,
+        interestIncome: row.interestIncome,
+        pretaxIncome: row.pretaxIncome,
+        incomeTaxExpense: row.incomeTaxExpense,
+        discontinuedOperations: row.discontinuedOperations,
+        netIncome: row.netIncome,
+        // EPS & Shares
+        epsBasic: row.epsBasic,
+        epsDiluted: row.epsDiluted ?? row.eps,
+        weightedAverageSharesBasic: row.weightedAverageSharesBasic,
+        weightedAverageSharesDiluted: row.weightedAverageSharesDiluted,
+        dividendsPerShare: row.dividendsPerShare,
+        // Balance Sheet
+        totalCash: row.totalCash,
+        shortTermInvestments: row.shortTermInvestments,
+        accountsReceivable: row.accountsReceivable,
+        inventory: row.inventory,
+        totalCurrentAssets: row.totalCurrentAssets,
+        goodwill: row.goodwill,
+        intangibleAssets: row.intangibleAssets,
+        ppneNet: row.ppneNet,
+        totalAssets: row.totalAssets,
+        totalCurrentLiabilities: row.totalCurrentLiabilities,
+        operatingLeaseLiability: row.operatingLeaseLiability,
+        longTermDebt: row.longTermDebt,
+        totalDebt: row.totalDebt,
+        totalLiabilities: row.totalLiabilities,
+        retainedEarnings: row.retainedEarnings,
+        totalStockholdersEquity: row.totalStockholdersEquity,
+        sharesOutstanding: row.sharesOutstanding,
+        // Cash Flow
+        operatingCashFlow: row.operatingCashFlow,
+        capitalExpenditure: row.capitalExpenditure,
+        freeCashFlow: row.freeCashFlow,
+        sbcInCashFlow: row.sbcInCashFlow,
+        shareRepurchases: row.shareRepurchases,
+        dividendsPaid: row.dividendsPaid,
+        debtIssuance: row.debtIssuance,
+        debtRepayment: row.debtRepayment,
+        workingCapitalChange: row.workingCapitalChange,
+        acquisitionRelatedCash: row.acquisitionRelatedCash,
+        // Deferred Revenue / RPO
+        deferredRevenue: row.deferredRevenue,
+        rpo: row.rpo,
+        // Equity / Comprehensive
+        accountsPayable: row.accountsPayable,
+        accumulatedOtherComprehensiveIncome: row.accumulatedOtherComprehensiveIncome,
+        additionalPaidInCapital: row.additionalPaidInCapital,
+        treasuryStock: row.treasuryStock,
+        preferredStock: row.preferredStock,
+        minorityInterest: row.minorityInterest,
+        comprehensiveIncome: row.comprehensiveIncome,
+        netIncomeAttributableToNoncontrolling: row.netIncomeAttributableToNoncontrolling,
+        proceedsFromStockOptions: row.proceedsFromStockOptions,
+        excessTaxBenefit: row.excessTaxBenefit,
+        // Market
+        marketCap: row.marketCap,
+        peRatio: row.peRatio,
+        // Supplementary
+        grossMarginPct: row.grossMarginPct,
+        fcfMarginPct: row.fcfMarginPct,
+        revenueGrowthYoY: row.revenueGrowthYoY,
+        // Derived (null for --all display)
+        operatingMarginPct: null,
+        netMarginPct: null,
+        ebitdaMarginPct: null,
+        rdIntensityPct: null,
+        sbcIntensityPct: null,
+        sgaToGrossProfitPct: null,
+        effectiveTaxRate: null,
+        bookValuePerShare: null,
+        ocfPerShare: null,
+        fcfPerShare: null,
+        ocfpsGrowthYoY: null,
+        fcfpsGrowthYoY: null,
+        debtToEquity: null,
+        debtToEbitda: null,
+        netDebt: null,
+        netDebtToEbitda: null,
+        interestCoverage: null,
+        currentRatio: null,
+        quickRatio: null,
+        cashRatio: null,
+        assetTurnover: null,
+        roa: null,
+        roe: null,
+        roic: null,
+        ownersEarnings: null,
+        capexToOcfPct: null,
+        fcfToNetIncomePct: null,
+        netWorkingCapital: null,
+        dso: null,
+        dio: null,
+        dpo: null,
+        cashConversionCycle: null,
+        inventoryTurnover: null,
+        netIncomeGrowthYoY: null,
+        operatingIncomeGrowthYoY: null,
+        fcfGrowthYoY: null,
+        odfGrowthYoY: null,
+        assetGrowthYoY: null,
+        equityGrowthYoY: null,
+        earningsYield: null,
+        fcfYield: null,
+        dividendYield: null,
+        buybackYield: null,
+        totalShareholderYield: null,
+        retainedEarningsToMarketValue: null,
       });
 
       // Split into quarters (q >= 1) and annuals (q === 0), newest first
@@ -69,6 +175,77 @@ export const fetchCommand = new Command('fetch')
       console.log(formatFinancialTable(current, historical, annuals));
       console.log(`\n数据来源: ${[...new Set(rows.map(r => r.source))].join(', ')}`);
       console.log(`最近更新: ${rows.map(r => `FY${r.year} Q${r.quarter === 0 ? '年度' : r.quarter}=${r.fetchedAt.slice(0, 10)}`).join('  ')}\n`);
+      return;
+    }
+
+    // ── --history mode: fetch N years of all quarters + annuals ───────────────
+    const historyYears = parseInt(options.history);
+    if (historyYears > 0) {
+      const quarters = [1, 2, 3, 4] as const;
+      const periods: Array<{ year: number; quarter: number }> = [];
+
+      // Build period list: FY(current-1) down to FY(current-historyYears)
+      // Include both quarterly (Q1-Q4) and annual (Q0 / 10-K) reports
+      for (let y = CURRENT_YEAR - 1; y >= CURRENT_YEAR - historyYears + 1; y--) {
+        periods.push({ year: y, quarter: 0 }); // annual 10-K first
+        for (const q of quarters) periods.push({ year: y, quarter: q });
+      }
+
+      const cache = new DataCache();
+      const secClient = new SecEdgarClient();
+      const yahooClient = new YahooClient();
+      let fetched = 0;
+      let skipped = 0;
+      let failed = 0;
+
+      console.log(`\n📜 Fetching ${historyYears}y history for ${ticker} — ${periods.length} quarters...\n`);
+
+      for (const { year, quarter } of periods) {
+        process.stdout.write(`  FY${year} Q${quarter}... `);
+
+        // Check cache
+        if (!options.forceRefresh) {
+          const cached = cache.getFinancial(ticker, year, quarter);
+          if (cached && countNonNullFields(cached) > 0) {
+            console.log('📦 cached');
+            skipped++;
+            continue;
+          }
+        }
+
+        // Fetch SEC + Yahoo
+        let secData = null;
+        try {
+          secData = await fetchCompanyFacts(secClient, ticker, year, quarter);
+        } catch {
+          /* skip */
+        }
+
+        let yahooData: Awaited<ReturnType<typeof fetchYahooFinancials>>[0] | null = null;
+        try {
+          const yahooResults = await fetchYahooFinancials(yahooClient, ticker);
+          yahooData = matchCalendarQuarter(yahooResults, year, quarter);
+        } catch {
+          /* skip */
+        }
+
+        const assembled = assembleFinancialData(ticker, year, quarter, secData, yahooData);
+        const filled = countNonNullFields(assembled);
+
+        if (filled > 0) {
+          cache.setFinancial(assembled);
+          fetched++;
+          console.log(`✅ (${filled} fields)`);
+        } else {
+          failed++;
+          console.log(`⚠️  no data`);
+        }
+
+        // Respectful rate-limit pause between SEC requests
+        await new Promise(r => setTimeout(r, 250));
+      }
+
+      console.log(`\n✅ History fetch complete: ${fetched} fetched, ${skipped} cached, ${failed} no data\n`);
       return;
     }
 
@@ -134,7 +311,7 @@ function printFinancialSnapshot(data: FinancialSnapshot) {
     ['Free Cash Flow',     formatFinancialValue(data.freeCashFlow)],
     ['FCF Margin %',       data.fcfMarginPct != null ? `${data.fcfMarginPct.toFixed(1)}%` : '缺失'],
     ['R&D Expense',        formatFinancialValue(data.rdExpense)],
-    ['EPS (Diluted)',      data.eps != null ? `$${data.eps.toFixed(2)}` : '缺失'],
+    ['EPS (Diluted)',      data.epsDiluted != null ? `$${data.epsDiluted.toFixed(2)}` : '缺失'],
     ['Shares Outstanding', data.sharesOutstanding != null ? `${(data.sharesOutstanding / 1e6).toFixed(0)}M` : '缺失'],
     ['Total Assets',       formatFinancialValue(data.totalAssets)],
     ['Total Liabilities',  formatFinancialValue(data.totalLiabilities)],

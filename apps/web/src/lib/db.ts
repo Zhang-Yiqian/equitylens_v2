@@ -118,3 +118,603 @@ export function getFinancialHistory(ticker: string): FinancialHistory[] {
       revenueGrowthYoY: r.revenueGrowthYoY ?? null,
     }))
 }
+
+// ── Data Quality Matrix (for heatmap / PRD 5.2 View E) ───────────────────────────
+
+const P0_FIELDS = [
+  'revenue',
+  'costOfRevenue',
+  'grossMargin',
+  'operatingIncome',
+  'interestExpense',
+  'interestIncome',
+  'pretaxIncome',
+  'incomeTaxExpense',
+  'netIncome',
+  'epsDiluted',
+  'depreciationAndAmortization',
+  'sbcExpense',
+  'capitalExpenditure',
+  'freeCashFlow',
+  'operatingCashFlow',
+  'totalDebt',
+  'totalCash',
+  'totalStockholdersEquity',
+  'goodwill',
+  'totalAssets',
+  'totalLiabilities',
+  'totalCurrentAssets',
+  'totalCurrentLiabilities',
+  'accountsReceivable',
+  'inventory',
+  'deferredRevenue',
+  'operatingExpenses',
+  'sgaExpense',
+  'rdExpense',
+  'dividendsPaid',
+  'shareRepurchases',
+] as const
+
+const FIELD_LABELS: Record<string, string> = {
+  revenue: '收入',
+  costOfRevenue: '营业成本',
+  grossMargin: '毛利润',
+  operatingIncome: '营业利润',
+  interestExpense: '利息支出',
+  interestIncome: '利息收入',
+  pretaxIncome: '税前利润',
+  incomeTaxExpense: '所得税',
+  netIncome: '净利润',
+  epsDiluted: 'EPS (摊薄)',
+  depreciationAndAmortization: 'D&A',
+  sbcExpense: 'SBC 股权激励',
+  capitalExpenditure: '资本支出',
+  freeCashFlow: '自由现金流',
+  operatingCashFlow: '经营活动现金流',
+  totalDebt: '总债务',
+  totalCash: '现金及等价物',
+  totalStockholdersEquity: '股东权益',
+  goodwill: '商誉',
+  totalAssets: '总资产',
+  totalLiabilities: '总负债',
+  totalCurrentAssets: '流动资产',
+  totalCurrentLiabilities: '流动负债',
+  accountsReceivable: '应收账款',
+  inventory: '存货',
+  deferredRevenue: '递延收入',
+  operatingExpenses: '运营费用',
+  sgaExpense: 'SG&A',
+  rdExpense: '研发费用',
+  dividendsPaid: '已付股息',
+  shareRepurchases: '股票回购',
+}
+
+export interface DataQualityRow {
+  ticker: string
+  year: number
+  quarter: number
+  periodsCount: number
+  coveragePct: number
+  hardTruthCoverage: number // 5 core fields
+  p0Coverage: number // 31 P0 fields
+  fieldSourcesCount: number
+  fieldCoverage: Record<string, 'present' | 'missing'>
+}
+
+export function getDataQualityMatrix(): DataQualityRow[] {
+  const tickers = Array.from(MVP_TICKER_SET)
+  return tickers.map(ticker => {
+    const rows = getAllFinancialSnapshots(ticker)
+    if (rows.length === 0) {
+      return {
+        ticker,
+        year: 0,
+        quarter: 0,
+        periodsCount: 0,
+        coveragePct: 0,
+        hardTruthCoverage: 0,
+        p0Coverage: 0,
+        fieldSourcesCount: 0,
+        fieldCoverage: {},
+      }
+    }
+
+    // Use best row (most populated hard fields)
+    const best = rows.reduce((a, b) => {
+      const hardFields = ['revenue', 'netIncome', 'grossMargin', 'freeCashFlow', 'operatingCashFlow']
+      const ca = hardFields.filter(f => (a as Record<string, unknown>)[f] !== null).length
+      const cb = hardFields.filter(f => (b as Record<string, unknown>)[f] !== null).length
+      return cb > ca ? b : a
+    }, rows[0])
+
+    const fieldCoverage: Record<string, 'present' | 'missing'> = {}
+    for (const f of P0_FIELDS) {
+      const v = (best as Record<string, unknown>)[f]
+      fieldCoverage[f] = v !== null && v !== undefined ? 'present' : 'missing'
+    }
+
+    const presentCount = P0_FIELDS.filter(f => fieldCoverage[f] === 'present').length
+    const p0Cov = Math.round(presentCount / P0_FIELDS.length * 100)
+    const hardFields = ['revenue', 'netIncome', 'grossMargin', 'freeCashFlow', 'operatingCashFlow']
+    const hardCov = hardFields.filter(f => (best as Record<string, unknown>)[f] !== null).length
+
+    let fieldSourcesCount = 0
+    try {
+      const fs = best.fieldSources ? JSON.parse(best.fieldSources) : null
+      fieldSourcesCount = fs ? Object.keys(fs).length : 0
+    } catch { /* ignore */ }
+
+    return {
+      ticker,
+      year: best.year,
+      quarter: best.quarter,
+      periodsCount: rows.length,
+      coveragePct: p0Cov,
+      hardTruthCoverage: hardCov,
+      p0Coverage: presentCount,
+      fieldSourcesCount,
+      fieldCoverage,
+    }
+  })
+}
+
+// ── Full Financial Snapshot (all P0 fields for a ticker) ─────────────────────
+
+export interface FullFinancialRow {
+  year: number
+  quarter: number
+  // Income Statement
+  revenue: number | null
+  costOfRevenue: number | null
+  grossMargin: number | null
+  grossMarginPct: number | null
+  operatingExpenses: number | null
+  sgaExpense: number | null
+  rdExpense: number | null
+  sbcExpense: number | null
+  depreciationAndAmortization: number | null
+  operatingIncome: number | null
+  interestExpense: number | null
+  interestIncome: number | null
+  pretaxIncome: number | null
+  incomeTaxExpense: number | null
+  netIncome: number | null
+  discontinuedOperations: number | null
+  comprehensiveIncome: number | null
+  // Per-share
+  epsDiluted: number | null
+  epsBasic: number | null
+  weightedAverageSharesBasic: number | null
+  weightedAverageSharesDiluted: number | null
+  dividendsPerShare: number | null
+  // Balance Sheet
+  totalCash: number | null
+  shortTermInvestments: number | null
+  accountsReceivable: number | null
+  accountsPayable: number | null
+  inventory: number | null
+  totalCurrentAssets: number | null
+  goodwill: number | null
+  intangibleAssets: number | null
+  ppneNet: number | null
+  totalAssets: number | null
+  totalCurrentLiabilities: number | null
+  operatingLeaseLiability: number | null
+  longTermDebt: number | null
+  totalDebt: number | null
+  totalLiabilities: number | null
+  retainedEarnings: number | null
+  totalStockholdersEquity: number | null
+  // Cash Flow
+  operatingCashFlow: number | null
+  capitalExpenditure: number | null
+  freeCashFlow: number | null
+  fcfMarginPct: number | null
+  sbcInCashFlow: number | null
+  shareRepurchases: number | null
+  dividendsPaid: number | null
+  debtIssuance: number | null
+  debtRepayment: number | null
+  workingCapitalChange: number | null
+  acquisitionRelatedCash: number | null
+  // Deferred
+  deferredRevenue: number | null
+  rpo: number | null
+  // Market
+  marketCap: number | null
+  peRatio: number | null
+  // Growth
+  revenueGrowthYoY: number | null
+  // Derived: Margins
+  operatingMarginPct: number | null
+  netMarginPct: number | null
+  ebitdaMarginPct: number | null
+  rdIntensityPct: number | null
+  sbcIntensityPct: number | null
+  sgaToGrossProfitPct: number | null
+  effectiveTaxRate: number | null
+  // Derived: Per-share
+  bookValuePerShare: number | null
+  ocfPerShare: number | null
+  fcfPerShare: number | null
+  ocfpsGrowthYoY: number | null
+  fcfpsGrowthYoY: number | null
+  // Derived: Leverage
+  debtToEquity: number | null
+  debtToEbitda: number | null
+  netDebt: number | null
+  netDebtToEbitda: number | null
+  interestCoverage: number | null
+  // Derived: Liquidity
+  currentRatio: number | null
+  quickRatio: number | null
+  cashRatio: number | null
+  // Derived: Efficiency
+  assetTurnover: number | null
+  roa: number | null
+  roe: number | null
+  roic: number | null
+  ownersEarnings: number | null
+  capexToOcfPct: number | null
+  fcfToNetIncomePct: number | null
+  // Derived: Working capital
+  netWorkingCapital: number | null
+  dso: number | null
+  dio: number | null
+  dpo: number | null
+  cashConversionCycle: number | null
+  inventoryTurnover: number | null
+  // Derived: Growth (YoY)
+  netIncomeGrowthYoY: number | null
+  operatingIncomeGrowthYoY: number | null
+  fcfGrowthYoY: number | null
+  odfGrowthYoY: number | null
+  // Equity / Comprehensive
+  accumulatedOtherComprehensiveIncome: number | null
+  additionalPaidInCapital: number | null
+  treasuryStock: number | null
+  preferredStock: number | null
+  minorityInterest: number | null
+  netIncomeAttributableToNoncontrolling: number | null
+  proceedsFromStockOptions: number | null
+  excessTaxBenefit: number | null
+  assetGrowthYoY: number | null
+  equityGrowthYoY: number | null
+  // Derived: Valuation
+  earningsYield: number | null
+  fcfYield: number | null
+  dividendYield: number | null
+  buybackYield: number | null
+  totalShareholderYield: number | null
+  // Derived: Buffett/Moat
+  retainedEarningsToMarketValue: number | null
+}
+
+// ── Derived metrics helpers (inlined to avoid web-app depending on @equitylens/data) ──
+
+function marginPct(n: number | null, d: number | null): number | null {
+  if (n == null || d == null || d === 0) return null
+  return (n / d) * 100
+}
+
+function div(a: number | null, b: number | null): number | null {
+  if (a == null || b == null || b === 0) return null
+  return a / b
+}
+
+function sumNonNull(...values: (number | null)[]): number | null {
+  const filtered = values.filter((v): v is number => v !== null && !isNaN(v))
+  if (filtered.length === 0) return null
+  return filtered.reduce((a, b) => a + b, 0)
+}
+
+function divByDays(value: number | null, revenue: number | null): number | null {
+  const ratio = div(value, revenue)
+  return ratio !== null ? ratio * 365 : null
+}
+
+function yoy(current: number | null, prior: number | null): number | null {
+  if (current == null || prior == null || prior === 0) return null
+  return ((current - prior) / Math.abs(prior)) * 100
+}
+
+function priceFromShares(marketCap: number | null, shares: number | null): number | null {
+  if (marketCap != null && shares != null && shares > 0) return marketCap / shares
+  return null
+}
+
+/** Compute all derived metrics from a raw DB row snapshot. */
+function computeRowMetrics(r: Record<string, number | null>, prior: Record<string, number | null> | null) {
+  const revenue = r.revenue
+  const grossMargin = r.grossMargin
+  const operatingIncome = r.operatingIncome
+  const netIncome = r.netIncome
+  const freeCashFlow = r.freeCashFlow
+  const operatingCashFlow = r.operatingCashFlow
+  const rdExpense = r.rdExpense
+  const sbcExpense = r.sbcExpense
+  const sgaExpense = r.sgaExpense
+  const pretaxIncome = r.pretaxIncome
+  const incomeTaxExpense = r.incomeTaxExpense
+  const interestExpense = r.interestExpense
+  const depreciationAndAmortization = r.depreciationAndAmortization
+  const sharesOutstanding = r.sharesOutstanding
+  const totalStockholdersEquity = r.totalStockholdersEquity
+  const totalDebt = r.totalDebt
+  const totalCash = r.totalCash
+  const shortTermInvestments = r.shortTermInvestments
+  const totalCurrentAssets = r.totalCurrentAssets
+  const totalCurrentLiabilities = r.totalCurrentLiabilities
+  const inventory = r.inventory
+  const costOfRevenue = r.costOfRevenue
+  const accountsReceivable = r.accountsReceivable
+  const capitalExpenditure = r.capitalExpenditure
+  const dividendsPerShare = r.dividendsPerShare
+  const shareRepurchases = r.shareRepurchases
+  const retainedEarnings = r.retainedEarnings
+  const marketCap = r.marketCap
+
+  // Margins
+  const gmPct    = marginPct(grossMargin, revenue)
+  const opMargin  = marginPct(operatingIncome, revenue)
+  const netMargin = marginPct(netIncome, revenue)
+  const ebitda    = sumNonNull(operatingIncome, depreciationAndAmortization)
+  const ebitdaMargin = marginPct(ebitda, revenue)
+  const fcfMargin   = marginPct(freeCashFlow, revenue)
+  const rdIntensity = marginPct(rdExpense, revenue)
+  const sbcIntensity = marginPct(sbcExpense, revenue)
+  const sgaToGp    = marginPct(sgaExpense, grossMargin)
+  const effTaxRate  = marginPct(incomeTaxExpense, pretaxIncome)
+
+  // Per-share
+  const bvps     = div(totalStockholdersEquity, sharesOutstanding)
+  const ocfPerShare = div(operatingCashFlow, sharesOutstanding)
+  const fcfPerShare = div(freeCashFlow, sharesOutstanding)
+
+  // Leverage
+  const netDebt = sumNonNull(totalDebt ?? 0, -(totalCash ?? 0), -(shortTermInvestments ?? 0))
+  const debtToEquity  = div(totalDebt, totalStockholdersEquity)
+  const debtToEbitda_  = div(totalDebt, ebitda)
+  const netDebtToEbitda = div(netDebt, ebitda)
+  const interestCoverage = div(
+    sumNonNull(pretaxIncome ?? 0, interestExpense ?? 0),
+    Math.abs(interestExpense ?? 0),
+  )
+
+  // Liquidity
+  const currentRatio = div(totalCurrentAssets, totalCurrentLiabilities)
+  const quickRatio   = div(
+    sumNonNull(totalCurrentAssets ?? 0, -(inventory ?? 0)),
+    totalCurrentLiabilities,
+  )
+  const cashRatio = div(
+    sumNonNull(totalCash ?? 0, shortTermInvestments ?? 0),
+    totalCurrentLiabilities,
+  )
+
+  // Efficiency
+  const assetTurnover = div(revenue, r.totalAssets)
+  const roa  = div(netIncome, r.totalAssets)
+  const roe  = div(netIncome, totalStockholdersEquity)
+  const investedCapital = sumNonNull(
+    totalStockholdersEquity ?? 0,
+    totalDebt ?? 0,
+    -(totalCash ?? 0),
+    -(shortTermInvestments ?? 0),
+  )
+  const taxAdjNopat = (netIncome !== null && incomeTaxExpense !== null && pretaxIncome !== null && pretaxIncome !== 0)
+    ? netIncome + (incomeTaxExpense / pretaxIncome) * (operatingIncome ?? 0)
+    : netIncome
+  const roic = div(taxAdjNopat, investedCapital)
+  const ownersEarnings = sumNonNull(
+    netIncome ?? 0,
+    depreciationAndAmortization ?? 0,
+    -(capitalExpenditure ?? 0),
+  )
+  const capexToOcf = marginPct(capitalExpenditure, operatingCashFlow)
+  const fcfToNI   = marginPct(freeCashFlow, netIncome)
+
+  // Working capital
+  const nwc = sumNonNull(totalCurrentAssets ?? 0, -(totalCurrentLiabilities ?? 0))
+  const dso = divByDays(accountsReceivable, revenue)
+  const dio = divByDays(inventory, costOfRevenue)
+  const dpo = divByDays(totalCurrentLiabilities, costOfRevenue)
+  const ccc = dso !== null && dio !== null && dpo !== null ? dso + dio - dpo : null
+  const invTurnover = div(costOfRevenue, inventory)
+
+  // Valuation
+  const price = priceFromShares(marketCap, sharesOutstanding)
+  const earningsYield = div(netIncome, marketCap)
+  const fcfYield_     = div(freeCashFlow, marketCap)
+  const divYield      = div(dividendsPerShare, price)
+  const buybackYield_  = div(shareRepurchases, marketCap)
+  const totalSYield   = divYield !== null && buybackYield_ !== null
+    ? divYield + buybackYield_
+    : (divYield ?? buybackYield_)
+
+  // Buffett
+  const retainedToMarket = div(retainedEarnings, marketCap)
+
+  // YoY Growth
+  let revGrowth: number | null = null
+  let niGrowth: number | null = null
+  let opIncGrowth: number | null = null
+  let fcfGrowth: number | null = null
+  let ocfGrowth: number | null = null
+  let assetGrowth: number | null = null
+  let equityGrowth: number | null = null
+  let ocfpsGrowth: number | null = null
+  let fcfpsGrowth: number | null = null
+
+  if (prior && prior.year !== undefined) {
+    revGrowth   = yoy(revenue, prior.revenue)
+    niGrowth    = yoy(netIncome, prior.netIncome)
+    opIncGrowth = yoy(operatingIncome, prior.operatingIncome)
+    fcfGrowth  = yoy(freeCashFlow, prior.freeCashFlow)
+    ocfGrowth  = yoy(operatingCashFlow, prior.operatingCashFlow)
+    assetGrowth = yoy(r.totalAssets, prior.totalAssets)
+    equityGrowth = yoy(totalStockholdersEquity, prior.totalStockholdersEquity)
+    ocfpsGrowth = yoy(ocfPerShare, div(prior.operatingCashFlow, prior.sharesOutstanding))
+    fcfpsGrowth = yoy(fcfPerShare, div(prior.freeCashFlow, prior.sharesOutstanding))
+  }
+
+  return {
+    // Margins
+    operatingMarginPct: opMargin,
+    netMarginPct: netMargin,
+    ebitdaMarginPct: ebitdaMargin,
+    rdIntensityPct: rdIntensity,
+    sbcIntensityPct: sbcIntensity,
+    sgaToGrossProfitPct: sgaToGp,
+    effectiveTaxRate: effTaxRate,
+    // Per-share
+    bookValuePerShare: bvps,
+    ocfPerShare,
+    fcfPerShare,
+    ocfpsGrowthYoY: ocfpsGrowth,
+    fcfpsGrowthYoY: fcfpsGrowth,
+    // Leverage
+    debtToEquity,
+    debtToEbitda: debtToEbitda_,
+    netDebt,
+    netDebtToEbitda: netDebtToEbitda,
+    interestCoverage,
+    // Liquidity
+    currentRatio,
+    quickRatio,
+    cashRatio,
+    // Efficiency
+    assetTurnover,
+    roa,
+    roe,
+    roic,
+    ownersEarnings,
+    capexToOcfPct: capexToOcf,
+    fcfToNetIncomePct: fcfToNI,
+    // Working capital
+    netWorkingCapital: nwc,
+    dso,
+    dio,
+    dpo,
+    cashConversionCycle: ccc,
+    inventoryTurnover: invTurnover,
+    // Growth
+    netIncomeGrowthYoY: niGrowth,
+    operatingIncomeGrowthYoY: opIncGrowth,
+    fcfGrowthYoY: fcfGrowth,
+    odfGrowthYoY: ocfGrowth,
+    assetGrowthYoY: assetGrowth,
+    equityGrowthYoY: equityGrowth,
+    // Valuation
+    earningsYield,
+    fcfYield: fcfYield_,
+    dividendYield: divYield,
+    buybackYield: buybackYield_,
+    totalShareholderYield: totalSYield,
+    retainedEarningsToMarketValue: retainedToMarket,
+  }
+}
+
+export function getFullFinancialHistory(ticker: string): FullFinancialRow[] {
+  const rows = getAllFinancialSnapshots(ticker.toUpperCase())
+
+  // Enforce 3-year scope: show FY(current-3) through FY(current-1)
+  // That's 3 fiscal years: e.g. in Mar 2026 → FY2023, FY2024, FY2025
+  const now = new Date()
+  const currentYear = now.getFullYear()
+  const startYear = currentYear - 3   // FY2023 (3 years back)
+  const endYear = currentYear - 1    // FY2025 (last completed full year)
+
+  // Filter to 3 fiscal years, then reverse to oldest→newest
+  const filtered = rows
+    .filter(r => r.year >= startYear && r.year <= endYear)
+    .reverse() // oldest → newest
+
+  return filtered.map((r, i) => {
+    const raw = r as unknown as Record<string, number | null>
+    // Prior snapshot: same fiscal quarter (quarter/period), prior year
+    const prior = filtered.find(p =>
+      p.quarter === r.quarter &&
+      p.year === r.year - 1
+    ) as (typeof filtered)[0] | undefined ?? null
+    const derived = computeRowMetrics(raw, prior ? prior as unknown as Record<string, number | null> : null)
+
+    return {
+      year: r.year,
+      quarter: r.quarter,
+      // Income Statement
+      revenue: r.revenue,
+      costOfRevenue: r.costOfRevenue,
+      grossMargin: r.grossMargin,
+      grossMarginPct: r.grossMarginPct,
+      operatingExpenses: r.operatingExpenses,
+      sgaExpense: r.sgaExpense,
+      rdExpense: r.rdExpense,
+      sbcExpense: r.sbcExpense,
+      depreciationAndAmortization: r.depreciationAndAmortization,
+      operatingIncome: r.operatingIncome,
+      interestExpense: r.interestExpense,
+      interestIncome: r.interestIncome,
+      pretaxIncome: r.pretaxIncome,
+      incomeTaxExpense: r.incomeTaxExpense,
+      netIncome: r.netIncome,
+      discontinuedOperations: r.discontinuedOperations,
+      comprehensiveIncome: r.comprehensiveIncome,
+      // Per-share
+      epsDiluted: r.epsDiluted ?? r.eps,
+      epsBasic: r.epsBasic,
+      weightedAverageSharesBasic: r.weightedAverageSharesBasic,
+      weightedAverageSharesDiluted: r.weightedAverageSharesDiluted,
+      dividendsPerShare: r.dividendsPerShare,
+      // Balance Sheet
+      totalCash: r.totalCash,
+      shortTermInvestments: r.shortTermInvestments,
+      accountsReceivable: r.accountsReceivable,
+      accountsPayable: r.accountsPayable,
+      inventory: r.inventory,
+      totalCurrentAssets: r.totalCurrentAssets,
+      goodwill: r.goodwill,
+      intangibleAssets: r.intangibleAssets,
+      ppneNet: r.ppneNet,
+      totalAssets: r.totalAssets,
+      totalCurrentLiabilities: r.totalCurrentLiabilities,
+      operatingLeaseLiability: r.operatingLeaseLiability,
+      longTermDebt: r.longTermDebt,
+      totalDebt: r.totalDebt,
+      totalLiabilities: r.totalLiabilities,
+      retainedEarnings: r.retainedEarnings,
+      totalStockholdersEquity: r.totalStockholdersEquity,
+      // Cash Flow
+      operatingCashFlow: r.operatingCashFlow,
+      capitalExpenditure: r.capitalExpenditure,
+      freeCashFlow: r.freeCashFlow,
+      fcfMarginPct: r.fcfMarginPct,
+      sbcInCashFlow: r.sbcInCashFlow,
+      shareRepurchases: r.shareRepurchases,
+      dividendsPaid: r.dividendsPaid,
+      debtIssuance: r.debtIssuance,
+      debtRepayment: r.debtRepayment,
+      workingCapitalChange: r.workingCapitalChange,
+      acquisitionRelatedCash: r.acquisitionRelatedCash,
+      // Deferred
+      deferredRevenue: r.deferredRevenue,
+      rpo: r.rpo,
+      // Market
+      marketCap: r.marketCap,
+      peRatio: r.peRatio,
+      // Growth
+      revenueGrowthYoY: r.revenueGrowthYoY,
+      // Equity / Comprehensive
+      accumulatedOtherComprehensiveIncome: r.accumulatedOtherComprehensiveIncome,
+      additionalPaidInCapital: r.additionalPaidInCapital,
+      treasuryStock: r.treasuryStock,
+      preferredStock: r.preferredStock,
+      minorityInterest: r.minorityInterest,
+      netIncomeAttributableToNoncontrolling: r.netIncomeAttributableToNoncontrolling,
+      proceedsFromStockOptions: r.proceedsFromStockOptions,
+      excessTaxBenefit: r.excessTaxBenefit,
+      // Derived
+      ...derived,
+    }
+  })
+}

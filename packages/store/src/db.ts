@@ -44,6 +44,7 @@ function initTables(sqlite: Database.Database): void {
       ticker TEXT NOT NULL,
       year INTEGER NOT NULL,
       quarter INTEGER NOT NULL,
+      -- Core (existing)
       revenue REAL,
       net_income REAL,
       gross_margin REAL,
@@ -64,6 +65,61 @@ function initTables(sqlite: Database.Database): void {
       source TEXT NOT NULL DEFAULT 'merged',
       raw_json TEXT,
       fetched_at TEXT NOT NULL,
+      -- Phase 3: Income Statement (new)
+      cost_of_revenue REAL,
+      operating_expenses REAL,
+      sga_expense REAL,
+      sbc_expense REAL,
+      other_income_expense REAL,
+      depreciation_and_amortization REAL,
+      operating_income REAL,
+      interest_expense REAL,
+      interest_income REAL,
+      pretax_income REAL,
+      income_tax_expense REAL,
+      discontinued_operations REAL,
+      -- Phase 3: EPS & Shares (new)
+      eps_basic REAL,
+      eps_diluted REAL,
+      weighted_avg_shares_basic REAL,
+      weighted_avg_shares_diluted REAL,
+      dividends_per_share REAL,
+      -- Phase 3: Balance Sheet (new)
+      total_cash REAL,
+      short_term_investments REAL,
+      accounts_receivable REAL,
+      inventory REAL,
+      total_current_assets REAL,
+      goodwill REAL,
+      intangible_assets REAL,
+      ppne_net REAL,
+      total_current_liabilities REAL,
+      operating_lease_liability REAL,
+      long_term_debt REAL,
+      total_debt REAL,
+      retained_earnings REAL,
+      total_stockholders_equity REAL,
+      -- Phase 3: Cash Flow (new)
+      sbc_in_cash_flow REAL,
+      share_repurchases REAL,
+      dividends_paid REAL,
+      debt_issuance REAL,
+      debt_repayment REAL,
+      working_capital_change REAL,
+      acquisition_related_cash REAL,
+      -- Phase 3: Field Sources
+      field_sources TEXT,
+      -- Equity / Comprehensive (new)
+      accounts_payable REAL,
+      accumulated_other_comprehensive_income REAL,
+      additional_paid_in_capital REAL,
+      treasury_stock REAL,
+      preferred_stock REAL,
+      minority_interest REAL,
+      comprehensive_income REAL,
+      net_income_attributable_to_noncontrolling REAL,
+      proceeds_from_stock_options REAL,
+      excess_tax_benefit REAL,
       UNIQUE(ticker, year, quarter)
     );
 
@@ -133,17 +189,75 @@ function initTables(sqlite: Database.Database): void {
     }
   }
 
-  // Migrate existing financial_snapshots: add Phase 2 computed columns if missing
+  // Migrate financial_snapshots: add Phase 3 new columns if missing
   const snapCols = new Set(
     (sqlite.pragma('table_info(financial_snapshots)') as Array<{ name: string }>).map(r => r.name)
   );
-  for (const [col, def] of [
+  const newSnapCols: Array<[string, string]> = [
+    // Phase 2 additions
     ['revenue_growth_yoy', 'REAL'],
     ['gross_margin_pct', 'REAL'],
     ['fcf_margin_pct', 'REAL'],
     ['deferred_revenue', 'REAL'],
     ['rpo', 'REAL'],
-  ] as const) {
+    // Phase 3 Income Statement
+    ['cost_of_revenue', 'REAL'],
+    ['operating_expenses', 'REAL'],
+    ['sga_expense', 'REAL'],
+    ['sbc_expense', 'REAL'],
+    ['other_income_expense', 'REAL'],
+    ['depreciation_and_amortization', 'REAL'],
+    ['operating_income', 'REAL'],
+    ['interest_expense', 'REAL'],
+    ['interest_income', 'REAL'],
+    ['pretax_income', 'REAL'],
+    ['income_tax_expense', 'REAL'],
+    ['discontinued_operations', 'REAL'],
+    // Phase 3 EPS & Shares
+    ['eps_basic', 'REAL'],
+    ['eps_diluted', 'REAL'],
+    ['weighted_avg_shares_basic', 'REAL'],
+    ['weighted_avg_shares_diluted', 'REAL'],
+    ['dividends_per_share', 'REAL'],
+    // Phase 3 Balance Sheet
+    ['total_cash', 'REAL'],
+    ['short_term_investments', 'REAL'],
+    ['accounts_receivable', 'REAL'],
+    ['inventory', 'REAL'],
+    ['total_current_assets', 'REAL'],
+    ['goodwill', 'REAL'],
+    ['intangible_assets', 'REAL'],
+    ['ppne_net', 'REAL'],
+    ['total_current_liabilities', 'REAL'],
+    ['operating_lease_liability', 'REAL'],
+    ['long_term_debt', 'REAL'],
+    ['total_debt', 'REAL'],
+    ['retained_earnings', 'REAL'],
+    ['total_stockholders_equity', 'REAL'],
+    // Phase 3 Cash Flow
+    ['capital_expenditure', 'REAL'],
+    ['sbc_in_cash_flow', 'REAL'],
+    ['share_repurchases', 'REAL'],
+    ['dividends_paid', 'REAL'],
+    ['debt_issuance', 'REAL'],
+    ['debt_repayment', 'REAL'],
+    ['working_capital_change', 'REAL'],
+    ['acquisition_related_cash', 'REAL'],
+    // Field Sources
+    ['field_sources', 'TEXT'],
+    // Equity / Comprehensive (new)
+    ['accounts_payable', 'REAL'],
+    ['accumulated_other_comprehensive_income', 'REAL'],
+    ['additional_paid_in_capital', 'REAL'],
+    ['treasury_stock', 'REAL'],
+    ['preferred_stock', 'REAL'],
+    ['minority_interest', 'REAL'],
+    ['comprehensive_income', 'REAL'],
+    ['net_income_attributable_to_noncontrolling', 'REAL'],
+    ['proceeds_from_stock_options', 'REAL'],
+    ['excess_tax_benefit', 'REAL'],
+  ];
+  for (const [col, def] of newSnapCols) {
     if (!snapCols.has(col)) {
       sqlite.exec(`ALTER TABLE financial_snapshots ADD COLUMN ${col} ${def}`);
     }
@@ -216,7 +330,7 @@ function initTables(sqlite: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_universe_blacklist_reason ON universe_blacklist(reason);
   `);
 
-  // ── Migration: add l3_api_failed column if missing (added after initial deploy) ──
+  // Migration: add l3_api_failed column if missing
   const cacheCols = new Set(
     (sqlite.pragma('table_info(universe_cache)') as Array<{ name: string }>).map(r => r.name)
   );
@@ -224,7 +338,7 @@ function initTables(sqlite: Database.Database): void {
     sqlite.exec(`ALTER TABLE universe_cache ADD COLUMN l3_api_failed INTEGER NOT NULL DEFAULT 0`);
   }
 
-  // ── Ensure Phase 2 tables exist (news_cache, ten_k_cache) ─────────────────
+  // ── Phase 2 tables ───────────────────────────────────────────────────────
   sqlite.exec(`
     CREATE TABLE IF NOT EXISTS news_cache (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -246,5 +360,69 @@ function initTables(sqlite: Database.Database): void {
       document_url TEXT NOT NULL,
       fetched_at TEXT NOT NULL
     );
+  `);
+
+  // ── Phase 3: industry_metrics ───────────────────────────────────────────
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS industry_metrics (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      ticker TEXT NOT NULL,
+      year INTEGER NOT NULL,
+      quarter INTEGER NOT NULL,
+      supply_chain_tag TEXT,
+      -- Cloud / SaaS
+      arr REAL,
+      net_new_arr REAL,
+      nrr REAL,
+      mrr REAL,
+      customer_count INTEGER,
+      logo_churn_rate REAL,
+      ltv REAL,
+      cac REAL,
+      ltv_cac_ratio REAL,
+      payback_period_months INTEGER,
+      -- Semiconductor
+      wafer_capacity_units TEXT,
+      capacity_utilization_pct REAL,
+      asp_trend TEXT,
+      advanced_node_pct REAL,
+      -- GPU / Infrastructure
+      gpu_shipments INTEGER,
+      gpu_asp REAL,
+      datacenter_revenue_mix REAL,
+      datacenter_power_mw REAL,
+      pue REAL,
+      -- Networking
+      switch_ports_shipped INTEGER,
+      router_ports_shipped INTEGER,
+      -- Extracted via LLM
+      extracted_narrative TEXT,
+      extraction_source TEXT,
+      fetched_at TEXT NOT NULL,
+      UNIQUE(ticker, year, quarter)
+    );
+    CREATE INDEX IF NOT EXISTS idx_industry_metrics_tag ON industry_metrics(supply_chain_tag);
+  `);
+
+  // ── Phase 3: non_gaap_adjustments ───────────────────────────────────────
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS non_gaap_adjustments (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      ticker TEXT NOT NULL,
+      year INTEGER NOT NULL,
+      quarter INTEGER NOT NULL,
+      source TEXT NOT NULL,
+      filing_date TEXT,
+      adjusted_metric TEXT NOT NULL,
+      adjustment_item TEXT NOT NULL,
+      amount REAL,
+      gaap_value REAL,
+      non_gaap_value REAL,
+      raw_text_snippet TEXT,
+      fetched_at TEXT NOT NULL,
+      UNIQUE(ticker, year, quarter, adjusted_metric, adjustment_item)
+    );
+    CREATE INDEX IF NOT EXISTS idx_non_gaap_ticker_period
+      ON non_gaap_adjustments(ticker, year, quarter);
   `);
 }

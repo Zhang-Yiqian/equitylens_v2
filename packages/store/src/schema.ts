@@ -29,6 +29,7 @@ export const financialSnapshots = sqliteTable('financial_snapshots', {
   ticker: text('ticker').notNull(),
   year: integer('year').notNull(),
   quarter: integer('quarter').notNull(),
+  // Core (existing)
   revenue: real('revenue'),
   netIncome: real('net_income'),
   grossMargin: real('gross_margin'),
@@ -49,6 +50,62 @@ export const financialSnapshots = sqliteTable('financial_snapshots', {
   source: text('source').notNull().default('merged'),
   rawJson: text('raw_json'),
   fetchedAt: text('fetched_at').notNull(),
+  // ── Income Statement (new) ────────────────────────────────────────────────
+  costOfRevenue: real('cost_of_revenue'),
+  operatingExpenses: real('operating_expenses'),
+  sgaExpense: real('sga_expense'),
+  sbcExpense: real('sbc_expense'),
+  otherIncomeExpense: real('other_income_expense'),
+  depreciationAndAmortization: real('depreciation_and_amortization'),
+  operatingIncome: real('operating_income'),
+  interestExpense: real('interest_expense'),
+  interestIncome: real('interest_income'),
+  pretaxIncome: real('pretax_income'),
+  incomeTaxExpense: real('income_tax_expense'),
+  discontinuedOperations: real('discontinued_operations'),
+  // ── EPS & Shares (new) ─────────────────────────────────────────────────────
+  epsBasic: real('eps_basic'),
+  epsDiluted: real('eps_diluted'),
+  weightedAverageSharesBasic: real('weighted_avg_shares_basic'),
+  weightedAverageSharesDiluted: real('weighted_avg_shares_diluted'),
+  dividendsPerShare: real('dividends_per_share'),
+  // ── Balance Sheet (new) ────────────────────────────────────────────────────
+  totalCash: real('total_cash'),
+  shortTermInvestments: real('short_term_investments'),
+  accountsReceivable: real('accounts_receivable'),
+  inventory: real('inventory'),
+  totalCurrentAssets: real('total_current_assets'),
+  goodwill: real('goodwill'),
+  intangibleAssets: real('intangible_assets'),
+  ppneNet: real('ppne_net'),
+  totalCurrentLiabilities: real('total_current_liabilities'),
+  operatingLeaseLiability: real('operating_lease_liability'),
+  longTermDebt: real('long_term_debt'),
+  totalDebt: real('total_debt'),
+  retainedEarnings: real('retained_earnings'),
+  totalStockholdersEquity: real('total_stockholders_equity'),
+  // ── Cash Flow (new) ───────────────────────────────────────────────────────
+  capitalExpenditure: real('capital_expenditure'),
+  sbcInCashFlow: real('sbc_in_cash_flow'),
+  shareRepurchases: real('share_repurchases'),
+  dividendsPaid: real('dividends_paid'),
+  debtIssuance: real('debt_issuance'),
+  debtRepayment: real('debt_repayment'),
+  workingCapitalChange: real('working_capital_change'),
+  acquisitionRelatedCash: real('acquisition_related_cash'),
+  // ── Equity / Comprehensive (new) ─────────────────────────────────────────
+  accountsPayable: real('accounts_payable'),
+  accumulatedOtherComprehensiveIncome: real('accumulated_other_comprehensive_income'),
+  additionalPaidInCapital: real('additional_paid_in_capital'),
+  treasuryStock: real('treasury_stock'),
+  preferredStock: real('preferred_stock'),
+  minorityInterest: real('minority_interest'),
+  comprehensiveIncome: real('comprehensive_income'),
+  netIncomeAttributableToNoncontrolling: real('net_income_attributable_to_noncontrolling'),
+  proceedsFromStockOptions: real('proceeds_from_stock_options'),
+  excessTaxBenefit: real('excess_tax_benefit'),
+  // ── Field Sources ─────────────────────────────────────────────────────────
+  fieldSources: text('field_sources'), // JSON string of FieldSources
 }, (table) => [
   uniqueIndex('uq_snapshots_ticker_period').on(table.ticker, table.year, table.quarter),
 ]);
@@ -165,6 +222,84 @@ export const universeCache = sqliteTable('universe_cache', {
 }, (table) => [
   index('idx_universe_cache_ticker').on(table.ticker),
   index('idx_universe_cache_ai_status').on(table.aiStatus),
+]);
+
+// ── Non-GAAP Adjustments ────────────────────────────────────────────────────────
+
+export const nonGaapAdjustments = sqliteTable('non_gaap_adjustments', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  ticker: text('ticker').notNull(),
+  year: integer('year').notNull(),
+  quarter: integer('quarter').notNull(),
+  // Filing source
+  source: text('source').notNull(), // '10-K' | '10-Q' | 'transcript'
+  filingDate: text('filing_date'),
+  // The GAAP metric being adjusted
+  adjustedMetric: text('adjusted_metric').notNull(), // e.g. 'netIncome', 'operatingIncome', 'fcf'
+  // The adjustment item name
+  adjustmentItem: text('adjustment_item').notNull(), // e.g. 'Stock-Based Compensation', 'Restructuring'
+  // Amount (absolute value; sign noted in adjustmentSign)
+  amount: real('amount'),
+  // GAAP-reported value
+  gaapValue: real('gaap_value'),
+  // Non-GAAP-reported value
+  nonGaapValue: real('non_gaap_value'),
+  // Source text snippet (verbatim from filing/call)
+  rawTextSnippet: text('raw_text_snippet'),
+  // Metadata
+  fetchedAt: text('fetched_at').notNull(),
+}, (table) => [
+  uniqueIndex('uq_non_gaap_ticker_period_metric_item')
+    .on(table.ticker, table.year, table.quarter, table.adjustedMetric, table.adjustmentItem),
+  index('idx_non_gaap_ticker_period').on(table.ticker, table.year, table.quarter),
+]);
+
+// ── Industry-Specific Metrics ──────────────────────────────────────────────────
+
+export const industryMetrics = sqliteTable('industry_metrics', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  ticker: text('ticker').notNull(),
+  year: integer('year').notNull(),
+  quarter: integer('quarter').notNull(),
+  supplyChainTag: text('supply_chain_tag'), // e.g. 'gpu_accelerators', 'ai_saas'
+
+  // Cloud / SaaS
+  arr: real('arr'),
+  netNewArr: real('net_new_arr'),
+  nrr: real('nrr'),                          // Net Revenue Retention %
+  mrr: real('mrr'),
+  customerCount: integer('customer_count'),
+  logoChurnRate: real('logo_churn_rate'),
+  ltv: real('ltv'),
+  cac: real('cac'),
+  ltvCacRatio: real('ltv_cac_ratio'),
+  paybackPeriodMonths: integer('payback_period_months'),
+
+  // Semiconductor
+  waferCapacityUnits: text('wafer_capacity_units'),   // e.g. "30000 wafers/month"
+  capacityUtilizationPct: real('capacity_utilization_pct'),
+  aspTrend: text('asp_trend'),           // 'increasing' | 'stable' | 'decreasing'
+  advancedNodePct: real('advanced_node_pct'),
+
+  // GPU / Infrastructure
+  gpuShipments: integer('gpu_shipments'),
+  gpuAsp: real('gpu_asp'),
+  datacenterRevenueMix: real('datacenter_revenue_mix'), // % of total revenue
+  datacenterPowerMw: real('datacenter_power_mw'),
+  pue: real('pue'),
+
+  // Networking
+  switchPortsShipped: integer('switch_ports_shipped'),
+  routerPortsShipped: integer('router_ports_shipped'),
+
+  // Extracted via LLM
+  extractedNarrative: text('extracted_narrative'),
+  extractionSource: text('extraction_source'), // 'mda' | 'transcript' | 'yf'
+
+  fetchedAt: text('fetched_at').notNull(),
+}, (table) => [
+  uniqueIndex('uq_industry_metrics_ticker_period').on(table.ticker, table.year, table.quarter),
+  index('idx_industry_metrics_tag').on(table.supplyChainTag),
 ]);
 
 export const universeBlacklist = sqliteTable('universe_blacklist', {

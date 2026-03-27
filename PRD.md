@@ -1,58 +1,169 @@
-# AI 美股产业拐点挖掘与决策 SaaS PRD (v1.5 全量漏斗版)
+AI 美股产业拐点挖掘与决策 SaaS PRD (v1.6 绝对数据底座版)
+0. 文档信息
+产品代号：MVPify-AlphaTracker (EquityLens v1.6)
 
-## 0. 文档信息
-* **产品代号**：MVPify-AlphaTracker (EquityLens v2)
-* **文档版本**：v1.5 (全市场扫描与动态漏斗架构)
-* **核心目标**：从美股全市场（10,000+ 标的）中自动化筛出真正的 AI 产业链公司，利用 LLM 将“基础财务表”、“公司新闻流”与“SEC 10-K 官方画像”进行交叉验证，挖掘 6-12 个月维度的业绩催化剂。
+文档版本：v1.6 (全量漏斗 + 绝对数据底座与全景校验架构)
 
-## 1. 核心边界与生死假设
-* **数据极简主义**：底层动态数据锁死在 **Yahoo Finance**，静态宏观数据锁死在 **SEC EDGAR**。
-* **低成本高召回**：通过“正则扫雷 + LLM 纯度清洗 + 状态缓存”三级漏斗，解决全市场覆盖的成本问题。
-* **生死假设**：大语言模型能否在 10-K 划定的竞争格局内，准确推理出“财务异动 + 新闻事件”背后的利润阶跃拐点？
+核心目标：从美股全市场（10,000+ 标的）中筛出真正的 AI 产业链公司后，在本地构建 100% 完整、高精度的财务、事件与定性文稿时间序列数据库，作为 LLM 拐点预测的 Ground Truth。彻底消灭数据静默缺失，并提供可视化全景校验页面。
 
-## 2. 核心架构与模块说明
+1. 核心边界与生死假设
+数据精度至上：宁可拉取速度慢，绝不允许数据静默缺失（Silent Missing）。所有的 NaN 或 Null 必须被捕获、告警并触发降级补全机制。
 
-### 模块零：全市场 AI 标的漏斗过滤引擎 (The Universe Funnel)
-**[Level 1] 全量底座与增量缓存**
-* **数据源**：Nasdaq Trader (`nasdaqlisted.txt`, `otherlisted.txt`)。
-* **清洗**：过滤 ETF、基金、权证、优先股。
-* **缓存策略**：建立本地 Ticker 状态表。被判定为“非 AI 产业链”的公司永久标记为 `False`，后续仅对新上市或业务变更（10-K 更新）的公司进行增量判定。
+双源交叉验证：以 Yahoo Finance (YF) 为高频捷径，但必须引入权威级 API（如 FMP/Polygon）与 SEC EDGAR (XBRL 格式) 作为终极容灾托底，确保财务表无死角。
 
-**[Level 2] 零成本文本扫雷 (关键词匹配)**
-* **匹配逻辑**：对公司业务摘要进行正则表达式检索。命中以下任一词库即进入下一级：
-    * **算力硬件**：`AI Chip`, `AI Accelerator`, `GPU`, `TPU`, `NPU`, `DPU`, `ASIC`, `FPGA`, `High Performance Computing`, `HPC`, `HBM`, `High Bandwidth Memory`, `Advanced Packaging`, `CoWoS`, `EDA`, `Semiconductor IP`, `Custom Silicon`, `AI`。
-    * **网络、基础设施与散热**：`Data Center`, `Optical Transceiver`, `Optical Module`, `Silicon Photonics`, `800G`, `1.6T`, `DSP`, `Liquid Cooling`, `Immersion Cooling`, `Smart Grid`, `Power Management IC`, `PMIC`, `AI`.
-    * **云、数据与底座框架**：`Cloud Computing`, `Hyperscaler`, `Vector Database`, `Data Annotation`, `Data Labeling`, `RAG`, `MLOps`, `ModelOps`, `Compute Infrastructure`, `AI`.
-    * **模型与算法核心**：`Large Language Model`, `LLM`, `Generative AI`, `GenAI`, `Machine Learning`, `Deep Learning`, `Neural Network`, `NLP`, `Natural Language Processing`, `Computer Vision`, `Transformer`, `Foundation Model`, `Multimodal`, `AI`.
-    * **应用与端侧 AI**：`AI Agent`, `Copilot`, `Autonomous Driving`, `Robotaxi`, `Humanoid Robot`, `RPA`, `AI PC`, `AI Smartphone`, `Edge AI`, `Predictive Analytics`, `AI`.
+低成本高召回：通过“正则扫雷 + LLM 纯度清洗 + 状态缓存”三级漏斗，解决全市场覆盖的成本问题。
 
-**[Level 3] 纯度清洗与硬性门槛**
-* **Gemini 判定**：通过 OpenRouter 调用 **`gemini-3.1-flash-lite-preview`**。
-    * **任务**：区分“真 AI 核心”与“传统蹭概念”。非核心公司触发永久黑名单。判定后打上具体的产业链标签（如“上游-光模块”）。
-* **财务初筛 (Hard Filters)**：
-    1. **市值**：`> 3亿美元`（防操纵）。
-    2. **流动性**：`30日均成交额 > 200万美元`。
-    3. **营收**：`TTM 营收 > 1000万美元`（确保商业化落地）。
-    4. **股价**：`> 1美元`（避开仙股）。
-* **合规熔断**：若 10-K 提及“持续经营存疑”或审计师辞职，直接标记 `Avoid`。
+生死假设：大语言模型只有在摄入 100% 无死角的硬核财务指标 + 护城河指标 + 10-K 定性解释 + 新闻事件 时，才能准确推演并识别出真实的利润阶跃拐点。基础数据断层会导致预测体系全面崩溃。
 
-### 模块一：三位一体数据馈送器 (Tri-Core Feeder)
-1. **财务 Hard Truth (YF)**：拉取近 4-8 季度营收、毛利、OpEx、现金流、CAPEX。
-2. **事件 News Feed (YF)**：抓取近 15-30 天新闻标题及摘要。
-3. **官方宏观底座 (SEC)**：提取最新 10-K 的 `Item 1 (Business)` 与 `Item 1A (Risk)`。
+2. 模块零：全市场 AI 标的漏斗过滤引擎 (The Universe Funnel)
+[Level 1] 全量底座与增量缓存
 
-### 模块二：宏观锚定下的交叉验证引擎
-AI 读取 10-K 建立基线后，扫描以下矩阵：
-* **[A] 竞争格局**：识别对手，判断是全行业红利还是份额掠夺。
-* **[B] 财务异动**：寻找“营收增+费用降”的经营杠杆释放，或利润率环比阶跃。
-* **[C] 事件验证**：验证新闻中的大单是否支撑财务表的研发转化。
+数据源：Nasdaq Trader (nasdaqlisted.txt, otherlisted.txt)，过滤 ETF、基金、权证、优先股。
 
-### 模块三：SaaS Web UI 极简交互
-1. **全市场扫描大盘**：展示漏斗实时状态（总数 -> 命中数 -> 入池数）及产业链分布。
-2. **全景自选股看板**：展示核心池标的的最新价与 AI 评级（Buy/Watch/Avoid）。这个是核心页面，作为默认首页
-3. **单标的深度卡片**：Markdown 研判报告（结论、催化剂、风险）+ 财务趋势图。
+缓存策略：建立本地 Ticker 状态表。判定为“非 AI”的公司标记 False，后续仅对新上市或 10-K 更新的公司进行增量判定。
 
-## 3. 演进路线图
-* **V1.5 (当前)**：全市场自动漏斗与 Gemini 纯度清洗。
-* **V2.0 (同业对标)**：基于 10-K 提取竞品并自动生成财务横评。
-* **V2.5 (商业化)**：多租户体系、自定义词库与 Stripe 计费。
+[Level 2] 零成本文本扫雷 (关键词匹配)
+
+对公司业务摘要进行正则检索，命中算力硬件、网络基础、云/数据、大模型算法、端侧应用等核心关键词库即进入下一级。
+
+[Level 3] 纯度清洗与硬性门槛
+
+调用 gemini-3.1-flash-preview，执行严苛的 L3 Prompt，区分“真 AI 核心”与“传统蹭概念”，并打上精准的产业链标签（如 materials, gpu_accelerators, power_thermal 等）。
+
+3. 核心数据字典 (The Ground Truth Matrix)
+为支撑大模型深度推演，核心池标的必须按季度 (Quarterly) 和 年度 (Annual) 双频次落库以下维度：
+
+3.1 基础利润表 (Income Statement) - 造血与经营杠杆
+Total Revenue: 总营收（核心增长锚点）。
+
+Cost of Revenue & Gross Profit: 营业成本与毛利润。
+
+Research and Development (R&D): 研发费用（AI 浓度核心指标）。
+
+SG&A: 销售及管理费用。
+
+Operating Income & Net Income: 营业利润与净利润。
+
+EBITDA & EPS (Basic/Diluted): 息税折旧摊销前利润与每股收益。
+
+3.2 基础资产负债表 (Balance Sheet) - 抗风险与扩张潜力
+Total Cash & Short Term Investments: 现金及等价物（能烧多久）。
+
+Accounts Receivable & Inventory: 应收账款与存货（排雷压货/坏账风险）。
+
+Total Current Assets & Total Current Liabilities: 流动资产与流动负债。
+
+Property, Plant & Equipment (PP&E), Net: 厂房及设备净值（AI 基建核心指标，观察算力重资产投入）。
+
+Total Assets, Long Term Debt, Total Liabilities, Stockholders' Equity。
+
+3.3 基础现金流量表 (Cash Flow) - 真金白银流转
+Operating Cash Flow: 经营现金流。
+
+Capital Expenditure (CapEx): 资本支出（AI 算力产业链最重要的前置指标）。
+
+Investing Cash Flow & Financing Cash Flow: 投资与筹资现金流（监控发债/增发）。
+
+Free Cash Flow (FCF): 自由现金流。
+
+3.4 华尔街交易员衍生指标 (Pro-Trader Advanced Metrics)
+Share-Based Compensation (SBC): 股权激励费用（极其致命，剔除利润粉饰）。
+
+Remaining Performance Obligations (RPO) / Backlog: 剩余履约义务/在手订单（AI 云与软件的核心先行指标）。
+
+Gross Margin % & Operating Margin %: 毛利率与营业利润率（判断产业链定价权）。
+
+R&D as a % of Revenue: 研发费用率（真 AI 拐点前夕通常维持 15%-30%+）。
+
+Days Sales Outstanding (DSO): 应收账款周转天数（硬件防雷，排查赊销刷单）。
+
+Inventory Turnover: 存货周转率（监控半导体/光模块的上游砍单或旧产品积压）。
+
+FCF Margin: 自由现金流利润率（烧钱期生存能力核心）。
+
+3.5 价值投资与护城河指标 (Buffett & Munger Moat Metrics)
+Return on Invested Capital (ROIC): 投入资本回报率（检验资本开支是否转化为高效利润，排查“毁灭价值”的伪巨头）。
+
+Return on Equity (ROE) 结合 Debt-to-Equity: 真实净资产收益率（剔除高杠杆水分）。
+
+Owner's Earnings: 所有者盈余（净利润 + D&A - 维持性 CapEx，看透折旧极快的 AI 硬件公司真实盈余）。
+
+CapEx as a % of Operating Cash Flow: 资本支出占经营现金流比例（>100% 意味着需不断融资的“糟糕生意”）。
+
+SG&A as a % of Gross Profit: 销售费用占毛利比例（SaaS 公司的照妖镜，检验产品自然垄断力）。
+
+Retained Earnings to Market Value Created: 留存收益创造价值比（测试管理层效能，防雷“All in AI”却不见成效的传统公司）。
+
+Gross Margin Consistency: 毛利率 10 年标准差（波动率越低，护城河越深）。
+
+3.6 新闻与事件时序流 (News Event Feed)
+Publish_Time (精确到分钟), Source, Title, Summary (前500字), URL, Event_Tag (由 LLM 自动打标，如产品发布、财报、并购)。
+
+3.7 SEC 原始文稿库 (SEC Filings Archive) - 定性弹药库
+10-K / 20-F (年度报告)：切片提取 Item 1 (Business)、Item 1A (Risk Factors)、Item 7 (MD&A)。
+
+10-Q / 6-K (季度报告)：重点提取 Part I, Item 2 (MD&A) 捕捉短期业务指引。
+
+8-K (重大事件)：捕获非财报季的突发订单/人事变动。
+
+Earnings Call Transcripts (财报电话会实录)：捕获 Q&A 环节管理层对 AI 资本开支、毛利率的口径指引。
+
+4. 致命缺失解决方案与重试机制 (Zero-Tolerance Protocol)
+4.1 异步指数级重试队列 (Exponential Backoff Retry Queue)
+触发：网络超时、API 限频 (HTTP 429) 或临时空数据。
+
+策略：延迟 1m, 5m, 30m, 2h, 12h 重试，禁止死循环。
+
+动态代理池 (Proxy Rotation)：连续 3 次失败自动切换备用 IP。
+
+4.2 降级补全漏斗 (Fallback Waterfall)
+Primary Fetch: Yahoo Finance (yfinance)。
+
+Missing Detection: 核心指标（如 Revenue, CapEx, R&D）为 NaN 触发熔断。
+
+Fallback 1: 权威付费 API 托底（如 FMP / Polygon.io）。
+
+Fallback 2: 调用 SEC EDGAR 官方 API，直接解析 XBRL 财务原始标签。
+
+Human-in-the-Loop: 24小时内所有机制失败，标记 Data_Corrupted 并在后台标红，交由人工录入。坚决禁止系统自动填 0。
+
+4.3 SEC 文本边缘 Case 容错
+中概股/海外股：自动识别并拉取对应的 20-F 和 6-K。
+
+文本清洗熔断：若 EDGAR HTML 解析乱码，系统回退保存完整原始 HTML，UI 标记 Raw_Only，提示交由大模型重新清洗提取。
+
+5. SaaS Web UI 极简交互与全景校验
+5.1 前台交互模块
+全市场扫描大盘：展示漏斗实时状态（总数 -> 命中数 -> 入池数）及产业链分布。
+
+全景自选股看板（默认首页）：展示核心池标的最新价、AI 评级 (Buy/Watch/Avoid) 与核心财务快照。
+
+单标的深度卡片：Markdown 研判报告（结论、催化剂、风险）。
+
+5.2 单标的底层全景检验看板 (The Master Data View)
+此页面为高阶开发者、分析师的数据审计中心。
+
+视图 A - 财务透视矩阵：表格平铺展示过去 8 季度全量财务与衍生指标，高亮环比异动（如 CapEx 突增 50%）。Fallback 补全的数据带有特殊来源标识（如 *SEC）。
+
+视图 B - 催化剂时间线：新闻时间轴与财报发布日叠加显示，直观展示“新闻事件驱动业绩拐点”的关联。
+
+视图 C - 缺失熔断日志：展示拉取报错与自动化修复记录。
+
+视图 D - 财报与研报原文库 (Document Center)：双屏对比模式。左侧看财务异动，右侧支持直接调取 10-K/10-Q MD&A 原文；支持全文关键词检索；LLM 生成的结论必须能点击溯源并高亮右侧原文。
+
+视图 E - 数据质量热力图与熔断大盘 (Data Quality Command Center)：
+
+全局热力图：X轴为核心指标，Y轴为公司 Ticker。
+
+颜色编码：🟩 完整且校验通过；🟨 重试队列中；🟧 降级补全成功；🟥 绝对缺失。
+
+归因仪表盘：统计数据来源占比（YF vs FMP vs SEC）。
+
+一键阻击 (Manual Override)：针对红灯格子提供“强制重试”或“人工覆写”功能。
+
+6. 演进路线图
+V1.5：全市场自动漏斗与 Gemini 纯度清洗。
+
+V1.6 (当前)：构建 100% 完整的底层财务字典、护城河指标与 SEC 语料库，加入多级重试容灾机制，上线全景数据校验大盘。
+
+V2.0：基于无死角的 V1.6 绝对底座，正式接入大语言模型执行深度的“财务横评 + 竞品博弈 + 产业链拐点推演”。

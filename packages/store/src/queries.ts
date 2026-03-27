@@ -1,6 +1,6 @@
 import { eq, and, desc, inArray } from 'drizzle-orm';
 import { getDb } from './db.js';
-import { financialSnapshots, transcripts, analyses, reports, newsCache, tenKCache, universeScans, universeCache, universeBlacklist } from './schema.js';
+import { financialSnapshots, transcripts, analyses, reports, newsCache, tenKCache, universeScans, universeCache, universeBlacklist, industryMetrics, nonGaapAdjustments } from './schema.js';
 
 export function getFinancialSnapshot(ticker: string, year: number, quarter: number) {
   const db = getDb();
@@ -213,4 +213,65 @@ export function getAllCachedTickers(): string[] {
   return db.select({ ticker: universeCache.ticker }).from(universeCache)
     .all()
     .map(r => r.ticker);
+}
+
+// ── Industry Metrics ────────────────────────────────────────────────────────────
+
+export function upsertIndustryMetrics(data: typeof industryMetrics.$inferInsert) {
+  const db = getDb();
+  return db.insert(industryMetrics)
+    .values(data)
+    .onConflictDoUpdate({
+      target: [industryMetrics.ticker, industryMetrics.year, industryMetrics.quarter],
+      set: { ...data, fetchedAt: new Date().toISOString() },
+    })
+    .run();
+}
+
+export function getIndustryMetrics(ticker: string, year: number, quarter: number) {
+  const db = getDb();
+  return db.select().from(industryMetrics)
+    .where(and(
+      eq(industryMetrics.ticker, ticker),
+      eq(industryMetrics.year, year),
+      eq(industryMetrics.quarter, quarter),
+    ))
+    .get();
+}
+
+export function getIndustryMetricsByTag(supplyChainTag: string) {
+  const db = getDb();
+  return db.select().from(industryMetrics)
+    .where(eq(industryMetrics.supplyChainTag, supplyChainTag))
+    .all();
+}
+
+// ── Non-GAAP Adjustments ───────────────────────────────────────────────────────
+
+export function upsertNonGaapAdjustment(data: typeof nonGaapAdjustments.$inferInsert) {
+  const db = getDb();
+  return db.insert(nonGaapAdjustments)
+    .values(data)
+    .onConflictDoUpdate({
+      target: [
+        nonGaapAdjustments.ticker,
+        nonGaapAdjustments.year,
+        nonGaapAdjustments.quarter,
+        nonGaapAdjustments.adjustedMetric,
+        nonGaapAdjustments.adjustmentItem,
+      ],
+      set: { ...data, fetchedAt: new Date().toISOString() },
+    })
+    .run();
+}
+
+export function getNonGaapAdjustments(ticker: string, year: number, quarter: number) {
+  const db = getDb();
+  return db.select().from(nonGaapAdjustments)
+    .where(and(
+      eq(nonGaapAdjustments.ticker, ticker),
+      eq(nonGaapAdjustments.year, year),
+      eq(nonGaapAdjustments.quarter, quarter),
+    ))
+    .all();
 }
