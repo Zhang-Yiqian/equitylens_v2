@@ -96,7 +96,7 @@ export function saveNewsItems(
   }
 }
 
-// ── 10-K Cache ───────────────────────────────────────────────────────────────
+// ── 10-K / 10-Q Cache ───────────────────────────────────────────────────────
 
 export function getTenKCache(ticker: string) {
   const db = getDb();
@@ -105,12 +105,36 @@ export function getTenKCache(ticker: string) {
     .get();
 }
 
+export type TenKCacheRow = NonNullable<ReturnType<typeof getTenKCache>>;
+
+/** Get all 10-K and 10-Q filings for a ticker, sorted newest first. */
+export function getAllTenKCache(ticker: string) {
+  const db = getDb();
+  return db.select().from(tenKCache)
+    .where(eq(tenKCache.ticker, ticker))
+    .orderBy(desc(tenKCache.year), desc(tenKCache.filingDate))
+    .all();
+}
+
+/** Get the latest 10-K filing for a ticker. */
+export function getLatest10K(ticker: string) {
+  const db = getDb();
+  return db.select().from(tenKCache)
+    .where(and(
+      eq(tenKCache.ticker, ticker),
+      eq(tenKCache.filingType, '10-K'),
+    ))
+    .orderBy(desc(tenKCache.year), desc(tenKCache.filingDate))
+    .limit(1)
+    .get();
+}
+
 export function upsertTenKCache(data: typeof tenKCache.$inferInsert) {
   const db = getDb();
   return db.insert(tenKCache)
     .values(data)
     .onConflictDoUpdate({
-      target: [tenKCache.ticker],
+      target: [tenKCache.ticker, tenKCache.filingType, tenKCache.year],
       set: { ...data, fetchedAt: new Date().toISOString() },
     })
     .run();

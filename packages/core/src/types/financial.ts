@@ -234,6 +234,20 @@ export interface FinancialSnapshot {
   totalShareholderYield: number | null;
   // Buffett/Moat
   retainedEarningsToMarketValue: number | null;
+
+  // ── Advanced Scoring Models ──────────────────────────────────────────────────
+  altmanZScore: number | null;  // Z > 2.99 safe, 1.81-2.99 grey, < 1.81 distress
+  piotroskiFScore: number | null; // 0-9 binary score
+  beneishMScore: number | null;  // M > -1.78 suggests manipulation
+
+  // ── Valuation Multiples ─────────────────────────────────────────────────────
+  evEbitda: number | null;      // Enterprise Value / EBITDA
+  evFcf: number | null;         // Enterprise Value / Free Cash Flow
+
+  // ── CAGR (5-year history) ──────────────────────────────────────────────────
+  revenueCAGR3Y: number | null; // FY2022 → FY2025
+  revenueCAGR5Y: number | null; // FY2020 → FY2025
+  grossMarginStdDev10Y: number | null; // 10-year gross margin std dev
 }
 
 // ── Derived / Computed Metrics ─────────────────────────────────────────────
@@ -321,6 +335,19 @@ export interface DerivedMetrics extends EquityRawFields {
   // Buffett/Moat
   retainedEarningsToMarketValue: number | null;
   grossMarginStdDev10Y: number | null;    // 10-year gross margin std dev (cross-period)
+
+  // ── Advanced Scoring Models ──────────────────────────────────────────────────
+  altmanZScore: number | null;
+  piotroskiFScore: number | null;
+  beneishMScore: number | null;
+
+  // ── Valuation Multiples ─────────────────────────────────────────────────────
+  evEbitda: number | null;
+  evFcf: number | null;
+
+  // ── CAGR ────────────────────────────────────────────────────────────────────
+  revenueCAGR3Y: number | null;
+  revenueCAGR5Y: number | null;
 }
 
 // ── Utilities ───────────────────────────────────────────────────────────────

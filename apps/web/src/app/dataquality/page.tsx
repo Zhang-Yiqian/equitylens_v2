@@ -40,6 +40,8 @@ const FIELD_LABELS: Record<string, string> = {
   rdExpense: '研发费用',
   dividendsPaid: '已付股息',
   shareRepurchases: '股票回购',
+  intangibleAssets: '无形资产',
+  longTermDebt: '长期债务',
 }
 
 const DISPLAY_FIELDS = [
@@ -51,6 +53,7 @@ const DISPLAY_FIELDS = [
   'totalLiabilities', 'totalCurrentAssets', 'totalCurrentLiabilities',
   'accountsReceivable', 'inventory', 'deferredRevenue', 'operatingExpenses',
   'sgaExpense', 'rdExpense', 'dividendsPaid', 'shareRepurchases',
+  'intangibleAssets', 'longTermDebt',
 ]
 
 function coverageColor(pct: number): { bg: string; text: string; label: string } {
@@ -125,7 +128,7 @@ export default function DataQualityPage() {
         <StatCard
           label="P0 平均覆盖率"
           value={`${avgCoverage}%`}
-          sub="30 个 P0 原始字段"
+          sub="33 个 P0 原始字段"
           highlight
         />
         <StatCard
@@ -252,7 +255,7 @@ export default function DataQualityPage() {
         <div className="px-4 py-3 border-b border-slate-100">
           <h2 className="text-base font-semibold text-slate-800">字段级别覆盖详情</h2>
           <p className="text-xs text-slate-500 mt-0.5">
-            {DISPLAY_FIELDS.length} 个 P0 原始字段在 {uniqueTickers} 个标的中的覆盖情况
+            {DISPLAY_FIELDS.length} 个 P0 字段在 {uniqueTickers} 个标的中的覆盖情况
           </p>
         </div>
         <div className="overflow-x-auto">

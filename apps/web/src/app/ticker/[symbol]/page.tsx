@@ -1,8 +1,34 @@
 import { notFound } from 'next/navigation'
 import Link from 'next/link'
 import { ArrowLeft, ExternalLink, TrendingUp, AlertTriangle, CheckCircle2, BarChart3 } from 'lucide-react'
-import { getLatestAnalysisForTicker, getFullFinancialHistory } from '@/lib/db'
+import { getLatestAnalysisForTicker, getFullFinancialHistory, getAllTenKCacheData } from '@/lib/db'
 import { Badge } from '@/components/ui/badge'
+
+/**
+ * Returns Tailwind color class for a financial metric value.
+ */
+function metricColor(
+  value: number | null,
+  type: 'pct' | 'ratio',
+  thresholds: { green: number; amber: number; invert?: boolean },
+): string {
+  if (value == null) return 'text-slate-400'
+  const { green, amber, invert } = thresholds
+  if (invert) {
+    if (value <= green) return 'text-emerald-600'
+    if (value <= amber) return 'text-amber-600'
+    return 'text-red-500'
+  }
+  if (type === 'pct') {
+    if (value >= green) return 'text-emerald-600'
+    if (value >= amber) return 'text-amber-600'
+    return 'text-red-500'
+  }
+  // ratio
+  if (value <= green) return 'text-emerald-600'
+  if (value <= amber) return 'text-amber-600'
+  return 'text-red-500'
+}
 import { TickerDetailTabs } from '@/components/TickerDetailTabs'
 import { verdictLabel, formatCurrency, formatPctAbs, formatDate } from '@/lib/utils'
 
@@ -23,6 +49,7 @@ export default function TickerPage({ params }: Props) {
   const ticker = params.symbol.toUpperCase()
   const analysis = getLatestAnalysisForTicker(ticker)
   const financialHistory = getFullFinancialHistory(ticker)
+  const tenKCacheData = getAllTenKCacheData(ticker)
 
   if (!analysis && financialHistory.length === 0) {
     notFound()
@@ -101,7 +128,7 @@ export default function TickerPage({ params }: Props) {
             )}
           </div>
 
-          {/* Key financial metrics */}
+          {/* Key financial metrics — 10 metrics with color coding */}
           {latest && (
             <div className="flex flex-wrap gap-4 sm:text-right">
               <div>
@@ -114,12 +141,62 @@ export default function TickerPage({ params }: Props) {
               </div>
               <div>
                 <p className="text-xs text-slate-400">毛利率</p>
-                <p className="num font-semibold text-slate-800">{formatPctAbs(latest.grossMarginPct)}</p>
+                <p className={`num font-semibold ${metricColor(latest.grossMarginPct, 'pct', { green: 50, amber: 30 })}`}>
+                  {latest.grossMarginPct != null ? formatPctAbs(latest.grossMarginPct) : '—'}
+                </p>
               </div>
               <div>
                 <p className="text-xs text-slate-400">FCF</p>
                 <p className="num font-semibold text-slate-800">{formatCurrency(latest.freeCashFlow)}</p>
               </div>
+              {latest.operatingMarginPct != null && (
+                <div>
+                  <p className="text-xs text-slate-400">营业利润率</p>
+                  <p className={`num font-semibold ${metricColor(latest.operatingMarginPct, 'pct', { green: 20, amber: 10 })}`}>
+                    {formatPctAbs(latest.operatingMarginPct)}
+                  </p>
+                </div>
+              )}
+              {latest.netMarginPct != null && (
+                <div>
+                  <p className="text-xs text-slate-400">净利润率</p>
+                  <p className={`num font-semibold ${metricColor(latest.netMarginPct, 'pct', { green: 20, amber: 10 })}`}>
+                    {formatPctAbs(latest.netMarginPct)}
+                  </p>
+                </div>
+              )}
+              {latest.debtToEquity != null && (
+                <div>
+                  <p className="text-xs text-slate-400">Debt/Equity</p>
+                  <p className={`num font-semibold ${metricColor(latest.debtToEquity, 'ratio', { green: 0.5, amber: 1.5, invert: true })}`}>
+                    {latest.debtToEquity.toFixed(2)}x
+                  </p>
+                </div>
+              )}
+              {latest.roic != null && (
+                <div>
+                  <p className="text-xs text-slate-400">ROIC</p>
+                  <p className={`num font-semibold ${metricColor(latest.roic, 'pct', { green: 15, amber: 8 })}`}>
+                    {formatPctAbs(latest.roic)}
+                  </p>
+                </div>
+              )}
+              {latest.currentRatio != null && (
+                <div>
+                  <p className="text-xs text-slate-400">流动比率</p>
+                  <p className={`num font-semibold ${metricColor(latest.currentRatio, 'ratio', { green: 2, amber: 1 })}`}>
+                    {latest.currentRatio.toFixed(2)}x
+                  </p>
+                </div>
+              )}
+              {latest.revenueGrowthYoY != null && (
+                <div>
+                  <p className="text-xs text-slate-400">营收 YoY</p>
+                  <p className={`num font-semibold ${metricColor(latest.revenueGrowthYoY, 'pct', { green: 20, amber: 5, invert: true })}`}>
+                    {formatPctAbs(latest.revenueGrowthYoY)}
+                  </p>
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -299,7 +376,7 @@ export default function TickerPage({ params }: Props) {
       )}
 
       {/* Tabbed financial data (always show, even before analysis) */}
-      <TickerDetailTabs ticker={ticker} financialHistory={financialHistory} analysis={analysis} />
+      <TickerDetailTabs ticker={ticker} financialHistory={financialHistory} analysis={analysis} tenKCacheData={tenKCacheData} />
 
       {/* SEC data source note */}
       {financialHistory.length > 0 && (

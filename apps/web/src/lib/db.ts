@@ -9,6 +9,8 @@ import {
   financialSnapshots,
   getAllFinancialSnapshots,
   getLatestAnalysis,
+  getTenKCache,
+  getAllTenKCache,
 } from '@equitylens/store'
 import { MVP_TICKER_SET } from '@equitylens/core'
 
@@ -119,6 +121,51 @@ export function getFinancialHistory(ticker: string): FinancialHistory[] {
     }))
 }
 
+// ── TenKCache (10-K filing text sections) ─────────────────────────────────────
+
+export interface TenKCacheData {
+  ticker: string
+  year: number
+  filingType: string | null
+  filingDate: string | null
+  documentUrl: string | null
+  item1Business: string | null
+  item1ARiskFactors: string | null
+  item6SelectedFinData: string | null
+  item7MdAndA: string | null
+  item7AFactors: string | null
+  item8Financials: string | null
+  item9Controls: string | null
+  item2Properties: string | null
+  item3Legal: string | null
+  item4Mine: string | null
+  item5Market: string | null
+  item10Directors: string | null
+  item11Compensation: string | null
+  item12Security: string | null
+  item13Relationships: string | null
+  item14Principal: string | null
+  extractedGuidance: string | null
+  // 10-Q specific
+  item1Financials: string | null
+  item2MdAndA: string | null
+  item3Defaults: string | null
+  item4Controls: string | null
+}
+
+export function getTenKCacheData(ticker: string): TenKCacheData | null {
+  const row = getTenKCache(ticker.toUpperCase())
+  if (!row) return null
+  // Cast to our interface to ensure type safety
+  return row as unknown as TenKCacheData
+}
+
+/** Get all 10-K and 10-Q filings for a ticker, sorted newest first. */
+export function getAllTenKCacheData(ticker: string): TenKCacheData[] {
+  const rows = getAllTenKCache(ticker.toUpperCase())
+  return rows as unknown as TenKCacheData[]
+}
+
 // ── Data Quality Matrix (for heatmap / PRD 5.2 View E) ───────────────────────────
 
 const P0_FIELDS = [
@@ -153,6 +200,8 @@ const P0_FIELDS = [
   'rdExpense',
   'dividendsPaid',
   'shareRepurchases',
+  'intangibleAssets',
+  'longTermDebt',
 ] as const
 
 const FIELD_LABELS: Record<string, string> = {
@@ -187,6 +236,8 @@ const FIELD_LABELS: Record<string, string> = {
   rdExpense: '研发费用',
   dividendsPaid: '已付股息',
   shareRepurchases: '股票回购',
+  intangibleAssets: '无形资产',
+  longTermDebt: '长期债务',
 }
 
 export interface DataQualityRow {
@@ -388,6 +439,16 @@ export interface FullFinancialRow {
   totalShareholderYield: number | null
   // Derived: Buffett/Moat
   retainedEarningsToMarketValue: number | null
+  // Advanced Scoring
+  altmanZScore: number | null
+  piotroskiFScore: number | null
+  beneishMScore: number | null
+  // Valuation Multiples
+  evEbitda: number | null
+  evFcf: number | null
+  // CAGR
+  revenueCAGR3Y: number | null
+  revenueCAGR5Y: number | null
 }
 
 // ── Derived metrics helpers (inlined to avoid web-app depending on @equitylens/data) ──
@@ -618,17 +679,116 @@ function computeRowMetrics(r: Record<string, number | null>, prior: Record<strin
 export function getFullFinancialHistory(ticker: string): FullFinancialRow[] {
   const rows = getAllFinancialSnapshots(ticker.toUpperCase())
 
-  // Enforce 3-year scope: show FY(current-3) through FY(current-1)
-  // That's 3 fiscal years: e.g. in Mar 2026 → FY2023, FY2024, FY2025
+  // Enforce 5-year scope: FY2021–FY2025 (supports 3Y CAGR, 5Y CAGR, Beneish M-Score)
   const now = new Date()
   const currentYear = now.getFullYear()
-  const startYear = currentYear - 3   // FY2023 (3 years back)
+  const startYear = currentYear - 5   // FY2021 (5 years back)
   const endYear = currentYear - 1    // FY2025 (last completed full year)
 
-  // Filter to 3 fiscal years, then reverse to oldest→newest
+  // Filter to 5 fiscal years, then reverse to oldest→newest
   const filtered = rows
     .filter(r => r.year >= startYear && r.year <= endYear)
     .reverse() // oldest → newest
+
+  // ── CAGR helpers ──────────────────────────────────────────────────────────
+  // Find annual (quarter=0) snapshots for CAGR computation
+  const annualRows = filtered.filter(r => r.quarter === 0)
+  function getAnnualRevenue(year: number): number | null {
+    const row = annualRows.find(r => r.year === year)
+    return row?.revenue ?? null
+  }
+
+  // ── Altman Z-Score helpers ────────────────────────────────────────────────
+  function totalAssetsTA(r: typeof filtered[0]): number | null { return r.totalAssets ?? null }
+  function totalLiabilitiesTL(r: typeof filtered[0]): number | null { return r.totalLiabilities ?? null }
+  function revenueR(r: typeof filtered[0]): number | null { return r.revenue ?? null }
+  function ebitdaEBIT(r: typeof filtered[0]): number | null {
+    if (r.operatingIncome == null || r.depreciationAndAmortization == null) return null
+    return r.operatingIncome + r.depreciationAndAmortization
+  }
+  function marketCapME(r: typeof filtered[0]): number | null { return r.marketCap ?? null }
+  function equityE(r: typeof filtered[0]): number | null { return r.totalStockholdersEquity ?? null }
+  function wc(r: typeof filtered[0]): number | null {
+    if (r.totalCurrentAssets == null || r.totalCurrentLiabilities == null) return null
+    return r.totalCurrentAssets - r.totalCurrentLiabilities
+  }
+  function re(r: typeof filtered[0]): number | null { return r.retainedEarnings ?? null }
+
+  function altmanZ(r: typeof filtered[0]): number | null {
+    const TA = totalAssetsTA(r)
+    const TL = totalLiabilitiesTL(r)
+    const R = revenueR(r)
+    const EBIT = ebitdaEBIT(r)
+    const ME = marketCapME(r)
+    const E = equityE(r)
+    const WC = wc(r)
+    const RE = re(r)
+
+    if (!TA || !TL || TL === 0) return null
+    const X1 = (WC != null) ? WC / TA : null
+    const X2 = (RE != null) ? RE / TA : null
+    const X3 = (EBIT != null) ? EBIT / TA : null
+    const marketEquity = ME ?? E
+    const X4 = (marketEquity != null) ? marketEquity / TL : null
+    const X5 = (R != null) ? R / TA : null
+
+    const components = [X1, X2, X3, X4, X5].filter((c): c is number => c !== null)
+    if (components.length < 3) return null
+    return 1.2*(X1??0) + 1.4*(X2??0) + 3.3*(X3??0) + 0.6*(X4??0) + 1.0*(X5??0)
+  }
+
+  // ── Piotroski F-Score helper ──────────────────────────────────────────────
+  function piotroskiF(r: typeof filtered[0], prior: typeof filtered[0] | null): number | null {
+    if (!prior) return null
+    const roaPos = (r.totalAssets && r.netIncome) ? r.netIncome / r.totalAssets > 0 : false
+    const ocfPos = (r.operatingCashFlow ?? 0) > 0
+    const priorRoa = (prior.totalAssets && prior.netIncome) ? prior.netIncome / prior.totalAssets : null
+    const currRoa = (r.totalAssets && r.netIncome) ? r.netIncome / r.totalAssets : null
+    const roaImp = currRoa !== null && priorRoa !== null ? currRoa > priorRoa : false
+    const noNewDebt = r.longTermDebt != null && prior.longTermDebt != null
+      ? r.longTermDebt <= prior.longTermDebt : true
+    const gmCurr = r.revenue ? (r.grossMargin ?? 0) / r.revenue : null
+    const gmPrior = prior.revenue ? (prior.grossMargin ?? 0) / prior.revenue : null
+    const gmImp = gmCurr !== null && gmPrior !== null ? gmCurr > gmPrior : false
+    const atCurr = r.totalAssets && r.revenue ? r.revenue / r.totalAssets : null
+    const atPrior = prior.totalAssets && prior.revenue ? prior.revenue / prior.totalAssets : null
+    const atImp = atCurr !== null && atPrior !== null ? atCurr > atPrior : false
+
+    return Number(roaPos) + Number(ocfPos) + Number(roaImp) +
+      Number(r.operatingCashFlow && r.netIncome ? r.operatingCashFlow > r.netIncome : false) +
+      Number(noNewDebt) + Number(gmImp) + Number(atImp)
+  }
+
+  // ── Beneish M-Score helper (simplified, requires prior year) ───────────────
+  function beneishM(r: typeof filtered[0], prior: typeof filtered[0] | null): number | null {
+    if (!prior || !r.totalAssets || !prior.totalAssets) return null
+    const currR = r.revenue
+    const priorR = prior.revenue
+    if (!currR || !priorR || priorR === 0) return null
+    const currDSR = r.accountsReceivable && currR ? r.accountsReceivable / currR : null
+    const priorDSR = prior.accountsReceivable && priorR ? prior.accountsReceivable / priorR : null
+    const DSRI = currDSR && priorDSR && priorDSR !== 0 ? currDSR / priorDSR : null
+    const GMI = currR && r.grossMargin && priorR && prior.grossMargin
+      ? (prior.grossMargin / priorR) / (r.grossMargin / currR) : null
+    const SGI = currR / priorR
+    const TATA = r.netIncome != null && r.operatingCashFlow != null
+      ? (r.netIncome - r.operatingCashFlow) / ((r.totalAssets + prior.totalAssets) / 2)
+      : null
+    const t = (v: number | null) => v ?? 0
+    return -4.84 + 0.920*t(DSRI) + 0.528*t(GMI) + 0.892*t(SGI) + 4.697*t(TATA)
+  }
+
+  // ── EV / EBITDA / FCF ────────────────────────────────────────────────────
+  function evCalc(r: typeof filtered[0]): number | null {
+    const MC = r.marketCap
+    const TD = r.totalDebt
+    const PS = r.preferredStock
+    const MI = r.minorityInterest
+    const C = r.totalCash
+    const STI = r.shortTermInvestments
+    if (MC == null && TD == null) return null
+    return (MC ?? 0) + (TD ?? 0) + (PS ?? 0) + (MI ?? 0) - (C ?? 0) - (STI ?? 0)
+  }
 
   return filtered.map((r, i) => {
     const raw = r as unknown as Record<string, number | null>
@@ -638,6 +798,20 @@ export function getFullFinancialHistory(ticker: string): FullFinancialRow[] {
       p.year === r.year - 1
     ) as (typeof filtered)[0] | undefined ?? null
     const derived = computeRowMetrics(raw, prior ? prior as unknown as Record<string, number | null> : null)
+
+    // CAGR: compute from annual snapshots
+    const revFY2025 = getAnnualRevenue(currentYear - 1)
+    const revFY2022 = getAnnualRevenue(currentYear - 4)
+    const revFY2020 = getAnnualRevenue(currentYear - 6)
+    const cagr3Y = revFY2025 != null && revFY2022 != null ? Math.pow(revFY2025 / revFY2022, 1/3) - 1 : null
+    const cagr5Y = revFY2025 != null && revFY2020 != null ? Math.pow(revFY2025 / revFY2020, 1/5) - 1 : null
+
+    // EV/EBITDA/FCF
+    const ev = evCalc(r)
+    const ebitda = r.operatingIncome != null && r.depreciationAndAmortization != null
+      ? r.operatingIncome + r.depreciationAndAmortization : null
+    const evEbitda_ = ev != null && ebitda != null && ebitda !== 0 ? ev / ebitda : null
+    const evFcf_ = ev != null && r.freeCashFlow != null && r.freeCashFlow !== 0 ? ev / r.freeCashFlow : null
 
     return {
       year: r.year,
@@ -715,6 +889,16 @@ export function getFullFinancialHistory(ticker: string): FullFinancialRow[] {
       excessTaxBenefit: r.excessTaxBenefit,
       // Derived
       ...derived,
+      // Advanced Scoring Models
+      altmanZScore: altmanZ(r),
+      piotroskiFScore: piotroskiF(r, prior),
+      beneishMScore: beneishM(r, prior),
+      // Valuation Multiples
+      evEbitda: evEbitda_,
+      evFcf: evFcf_,
+      // CAGR
+      revenueCAGR3Y: cagr3Y,
+      revenueCAGR5Y: cagr5Y,
     }
   })
 }

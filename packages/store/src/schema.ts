@@ -15,13 +15,35 @@ export const newsCache = sqliteTable('news_cache', {
 export const tenKCache = sqliteTable('ten_k_cache', {
   id: integer('id').primaryKey({ autoIncrement: true }),
   ticker: text('ticker').notNull(),
-  item1Business: text('item1_business'),
-  item1ARiskFactors: text('item1a_risk_factors'),
+  filingType: text('filing_type').notNull().default('10-K'), // '10-K' | '10-Q' | '8-K'
+  year: integer('year').notNull(), // filing date year, e.g. 2025
   filingDate: text('filing_date').notNull(),
   documentUrl: text('document_url').notNull(),
+  // ── 10-K Business & Risk (existing) ────────────────────────────────────────
+  item1Business: text('item1_business'),
+  item1ARiskFactors: text('item1a_risk_factors'),
+  // ── 10-K MD&A & Controls (new — full text, no truncation) ───────────────────
+  item6SelectedFinData: text('item6_selected_fin_data'), // Selected Financial Data
+  item7MdAndA: text('item7_md_and_a'), // Management Discussion & Analysis
+  item7AFactors: text('item7a_factors'), // Market Risk Disclosures
+  item8Financials: text('item8_financials'), // Financial Statements
+  item9Controls: text('item9_controls'), // Internal Controls
+  // ── Additional 10-K sections ────────────────────────────────────────────────
+  item2Properties: text('item2_properties'),
+  item3Legal: text('item3_legal'),
+  item4Mine: text('item4_mine'),
+  item5Market: text('item5_market'),
+  item10Directors: text('item10_directors'),
+  item11Compensation: text('item11_compensation'),
+  item12Security: text('item12_security'),
+  item13Relationships: text('item13_relationships'),
+  item14Principal: text('item14_principal'),
+  // ── Extracted quantitative guidance ──────────────────────────────────────────
+  extractedGuidance: text('extracted_guidance'), // JSON string
+  // ── Metadata ────────────────────────────────────────────────────────────────
   fetchedAt: text('fetched_at').notNull(),
 }, (table) => [
-  uniqueIndex('uq_ten_k_cache_ticker').on(table.ticker),
+  uniqueIndex('uq_ten_k_cache_ticker_type_year').on(table.ticker, table.filingType, table.year),
 ]);
 
 export const financialSnapshots = sqliteTable('financial_snapshots', {

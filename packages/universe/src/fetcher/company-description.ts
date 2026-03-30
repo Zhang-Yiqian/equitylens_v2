@@ -71,10 +71,13 @@ export async function fetchCompanyDescription(
     if (!desc) return null;
 
     const fetchedAt = new Date().toISOString();
+    const year = new Date().getFullYear();
 
     // 4. Save to SQLite + memory cache
     upsertTenKCache({
       ticker,
+      year,
+      filingType: 'description',
       item1Business: desc,
       filingDate: fetchedAt, // reuse field: stores the fetch date when using Yahoo source
       documentUrl: '',

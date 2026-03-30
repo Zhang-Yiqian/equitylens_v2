@@ -350,17 +350,116 @@ function initTables(sqlite: Database.Database): void {
       fetched_at TEXT NOT NULL
     );
     CREATE INDEX IF NOT EXISTS idx_news_cache_ticker ON news_cache(ticker);
-
-    CREATE TABLE IF NOT EXISTS ten_k_cache (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      ticker TEXT NOT NULL UNIQUE,
-      item1_business TEXT,
-      item1a_risk_factors TEXT,
-      filing_date TEXT NOT NULL,
-      document_url TEXT NOT NULL,
-      fetched_at TEXT NOT NULL
-    );
   `);
+
+  // ── ten_k_cache migration ──────────────────────────────────────────────────
+  // Detect the current UNIQUE constraint on ten_k_cache.
+  // The auto-generated index name tells us which constraint is active:
+  //   - sqlite_autoindex_ten_k_cache_1 → old UNIQUE(ticker)
+  //   - uq_ten_k_cache_ticker_type_year → new composite index
+  const tenKIndexes = (sqlite.pragma('index_list(ten_k_cache)') as Array<{ name: string; unique: number }>);
+  const hasNewCompositeIdx = tenKIndexes.some(i => i.name === 'uq_ten_k_cache_ticker_type_year');
+  const hasOldTickerIdx = tenKIndexes.some(i => i.name.startsWith('sqlite_autoindex_ten_k_cache'));
+
+  if (!hasNewCompositeIdx && (hasOldTickerIdx || tenKIndexes.length === 0)) {
+    // Old UNIQUE(ticker) constraint is active (or no index at all).
+    // SQLite cannot ALTER a UNIQUE constraint — rebuild the table.
+    const cols = new Set(
+      (sqlite.pragma('table_info(ten_k_cache)') as Array<{ name: string }>).map(r => r.name)
+    );
+    // Rename old table
+    sqlite.exec(`ALTER TABLE ten_k_cache RENAME TO ten_k_cache_old`);
+    // Create new table with correct composite UNIQUE constraint
+    sqlite.exec(`
+      CREATE TABLE ten_k_cache (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        ticker TEXT NOT NULL,
+        filing_type TEXT NOT NULL DEFAULT '10-K',
+        year INTEGER NOT NULL,
+        filing_date TEXT NOT NULL,
+        document_url TEXT NOT NULL,
+        item1_business TEXT,
+        item1a_risk_factors TEXT,
+        item6_selected_fin_data TEXT,
+        item7_md_and_a TEXT,
+        item7a_factors TEXT,
+        item8_financials TEXT,
+        item9_controls TEXT,
+        item2_properties TEXT,
+        item3_legal TEXT,
+        item4_mine TEXT,
+        item5_market TEXT,
+        item10_directors TEXT,
+        item11_compensation TEXT,
+        item12_security TEXT,
+        item13_relationships TEXT,
+        item14_principal TEXT,
+        extracted_guidance TEXT,
+        item1_financials TEXT,
+        item2_md_and_a TEXT,
+        item3_defaults TEXT,
+        item4_controls TEXT,
+        fetched_at TEXT NOT NULL
+      )
+    `);
+    sqlite.exec(
+      `CREATE UNIQUE INDEX uq_ten_k_cache_ticker_type_year
+       ON ten_k_cache(ticker, filing_type, year)`
+    );
+    // Copy data from old table (year may be NULL for old rows — backfill from filing_date)
+    sqlite.exec(`
+      INSERT OR IGNORE INTO ten_k_cache
+        (id, ticker, filing_type, year, filing_date, document_url,
+         item1_business, item1a_risk_factors, item6_selected_fin_data,
+         item7_md_and_a, item7a_factors, item8_financials, item9_controls,
+         item2_properties, item3_legal, item4_mine, item5_market,
+         item10_directors, item11_compensation, item12_security,
+         item13_relationships, item14_principal, extracted_guidance,
+         item1_financials, item2_md_and_a, item3_defaults, item4_controls,
+         fetched_at)
+      SELECT
+        id, ticker,
+        COALESCE(filing_type, '10-K'),
+        CAST(substr(filing_date, 1, 4) AS INTEGER),
+        filing_date, document_url,
+        item1_business, item1a_risk_factors, item6_selected_fin_data,
+        item7_md_and_a, item7a_factors, item8_financials, item9_controls,
+        item2_properties, item3_legal, item4_mine, item5_market,
+        item10_directors, item11_compensation, item12_security,
+        item13_relationships, item14_principal, extracted_guidance,
+        item1_financials, item2_md_and_a, item3_defaults, item4_controls,
+        fetched_at
+      FROM ten_k_cache_old
+    `);
+    sqlite.exec(`DROP TABLE ten_k_cache_old`);
+  } else if (!hasNewCompositeIdx) {
+    // Table exists with no recognized index — add missing 10-Q columns and backfill year
+    const curCols = new Set(
+      (sqlite.pragma('table_info(ten_k_cache)') as Array<{ name: string }>).map(r => r.name)
+    );
+    if (curCols.has('year')) {
+      sqlite.exec(
+        `UPDATE ten_k_cache SET year = CAST(substr(filing_date, 1, 4) AS INTEGER) WHERE year IS NULL`
+      );
+    }
+    const addCols: Array<[string, string]> = [
+      ['item1_financials', 'TEXT'],
+      ['item2_md_and_a', 'TEXT'],
+      ['item3_defaults', 'TEXT'],
+      ['item4_controls', 'TEXT'],
+    ];
+    for (const [col, def] of addCols) {
+      if (!curCols.has(col)) {
+        sqlite.exec(`ALTER TABLE ten_k_cache ADD COLUMN ${col} ${def}`);
+      }
+    }
+    // Create the new composite index
+    sqlite.exec(
+      `CREATE UNIQUE INDEX IF NOT EXISTS uq_ten_k_cache_ticker_type_year
+       ON ten_k_cache(ticker, filing_type, year)`
+    );
+  }
+  // else: new composite index already exists — nothing to do
 
   // ── Phase 3: industry_metrics ───────────────────────────────────────────
   sqlite.exec(`
