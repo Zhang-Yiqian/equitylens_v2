@@ -1,133 +1,95 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+Coding conventions and rules for Claude Code when working in this repository.
 
-## Project Overview
+---
 
-**EquityLens v2** is an AI industry chain US stock investment decision tool for personal long-term/swing investing (3-month to 1-year horizon). The full PRD is in `PRD.md`.
+## Build & Run
 
-This project is currently in **pre-development phase** — only `PRD.md` exists. Tech stack and build commands will be added here once the stack is chosen.
+```bash
+# Build all packages (respects Turborepo dependency order)
+pnpm build
 
-## Core Architecture (Three Modules)
+# Build a single package
+pnpm --filter @equitylens/cli build
 
-### Module 1: Universe Builder
-- Fetches tradable US stock universe from **Nasdaq Trader Symbol Directory** (`nasdaqlisted.txt`, `otherlisted.txt`)
-- Cleans/filters out ETFs, funds, warrants, test issues
-- Maintains versioned snapshots with diff tracking (new/removed tickers per scan)
+# Run CLI (always from repo root after build)
+node apps/cli/dist/index.js fetch MU --period 2025Q1
 
-### Module 2: AI Chain Mapper
-- Two-stage pipeline: **Stage 1** = high-recall keyword match (configurable keyword library) → **Stage 2** = high-precision node classification with confidence score (0–100) and evidence
-- 9 industry node categories across upstream (GPU/accelerators, storage, optical modules, semiconductors, EDA/IP), mid-stream (servers/OEM, data center, cloud), and downstream (LLM platforms, AI SaaS)
-- Every recall result must store **evidence** (hit keyword, source, text snippet)
-- Nodes are user-configurable (add/remove/rename)
-- Coverage metrics: per-node company count, top-N market cap coverage, mandatory "key names" recall list
+# Run tests
+pnpm test
 
-### Module 3: Prompt-driven Scoring
-- Generates a **structured research summary** per company (financial trends, valuation snapshot, moat evidence, risk list) as stable input for prompts
-- Three perspective prompt templates: Personal (AI industry lens), Buffett (moat/value), Munger (simplicity/long-term durability)
-- Prompts are **versioned** with rollback and cross-version comparison
-- Output per company: Buy/Watch/Avoid verdict, 3–5 evidence-backed reasons, key variables, risks, and a 0–100 score broken into 4 equal sub-scores (growth space, moat/replaceability, financial quality, valuation)
-- Composite score: `total = you*w1 + buffett*w2 + munger*w3` (weights configurable, default 1/1/1)
-
-## Data Sources
-
-| Data Type | Source | Notes |
-|---|---|---|
-| Universe | Nasdaq Trader Symbol Directory | Free, download via HTTP |
-| Financial Hard Truth | SEC EDGAR XBRL APIs (`company facts`, `company concept`) | Authoritative anchor — all key financial fields must trace back here |
-| Pricing (EOD) | Tiingo EOD | Sufficient for medium/long-term strategy |
-| News (optional v1) | Finnhub Company News | Per-ticker news fetch |
-
-**Hard Truth rule**: Revenue, net income, gross margin, operating cash flow, free cash flow, R&D expense, share changes, and segment disclosures must come from SEC XBRL. If a field is missing, display "缺失" — never fabricate values.
-
-## Key Pages (5 UI Views)
-
-1. **全市场扫描** — Universe scan: version, stats cards, diff view, CSV export
-2. **产业链地图** — Left: node tree; Center: company list sortable by market cap/score; Right: node stats + coverage indicators
-3. **公司详情** — Tabs: chain position + evidence / Hard Truth financials (with SEC source link) / three-perspective analysis (switchable prompt version) / personal notes
-4. **投资机会排行榜** — Filter by node/score range/market cap; sort by composite score; watchlist; CSV export
-5. **提示词管理** — Edit/version/rollback/compare for all three prompt perspectives
-
-## Data Update Cadence (v1 defaults)
-
-- Universe: manual weekly refresh
-- Financial Hard Truth: quarterly (after earnings releases)
-- EOD pricing: daily
-- News: 1-hour cycle if enabled
-
-## Harness Architecture
-
-This project uses a unified **Generator-Evaluator** harness pattern for all data pipeline modules. See `packages/harness/` for the framework implementation.
-
-### Core Principles
-
-| Principle | Description |
-|---|---|
-| **Generator-Evaluator** | Generator yields items; Evaluator checks quality; Runner drives the retry loop |
-| **Hard Thresholds** | Critical field gaps fail immediately — no silent degradation |
-| **Self-Evaluation** | Each module validates its own output before passing it downstream |
-| **Structured Handoffs** | Modules communicate via `ArtifactStore` (KV store in `HarnessContext`), not implicit imports |
-| **Budget Tracking** | Token count, elapsed time, and item limits are enforced per-module |
-
-### Package Structure
-
-```
-packages/harness/src/
-├── primitives/
-│   ├── retry.ts          # Exponential backoff with jitter, maxAttempts, isRetryable predicate
-│   ├── telemetry.ts      # Structured logging (DEBUG/INFO/WARN/ERROR/FATAL), console + memory handlers
-│   ├── validation.ts     # Composable Rule<T> combinators (isDefined, inRange, hasField, etc.)
-│   └── budget.ts         # Budget tracking (tokens, time, items, retries)
-├── context/
-│   ├── artifact-store.ts # In-memory KV store for inter-module data passing
-│   └── context.ts        # HarnessContext: runId, artifactStore, telemetry, budget, config
-├── runner/
-│   ├── runner.ts         # Generator → Evaluator → retry loop; fromAsyncIterator/fromArray helpers
-│   └── types.ts          # Evaluator<T,M>, EvaluatorResult, RunnerRunResult, ModuleManifest
-├── evaluator/
-│   ├── deterministic.ts  # DeterministicSnapshotEvaluator: P0/P1/P2 field tiers, cross-field consistency, outlier detection
-│   └── probabilistic.ts  # LLMClassificationEvaluator, LLMScoringEvaluator (uses ANTHROPIC_API_KEY)
-└── module-registry.ts    # HarnessOrchestrator: topological sort, dependency ordering
+# Start web dashboard
+pnpm dev --filter=@equitylens/web
 ```
 
-### Key Abstractions
-
-- **`HarnessContext`** — shared across a run: `artifactStore`, `telemetry`, `budget`, `config`
-- **`Evaluator<T, M>`** — `evaluate(item: T, ctx: HarnessContext): Promise<EvaluatorResult<M>>` → `{ ok, canRetry, errors, warnings, metadata }`
-- **`ModuleManifest<T, R, M>`** — describes a module: name, generator, optional evaluator, dependencies, priority
-- **`ArtifactStore`** — modules write/read artifacts by key, no import dependency between modules
-
-### Adding a New Module
-
-Implement `ModuleGenerator<T>` and `Evaluator<T, M>`, then register with `HarnessOrchestrator`:
-
-```typescript
-const manifest = defineModule('my-module', myGenerator, {
-  dependencies: ['financial-data'], // runs after
-  evaluator: myEvaluator,
-});
-orchestrator.register(manifest);
+After any code change, rebuild the affected package before running the CLI:
+```bash
+pnpm --filter @equitylens/cli build
 ```
 
-### Environment Variables
+---
 
-| Variable | Default | Description |
-|---|---|---|
-| `EQUITYLENS_HARNESS_MODE` | `false` | Enable harness mode for CLI fetch commands |
-| `EQUITYLENS_HARNESS_EVALUATOR_AGENT` | `false` | Enable LLM-powered evaluator (requires `ANTHROPIC_API_KEY`) |
-| `EQUITYLENS_HARNESS_LOG_LEVEL` | `INFO` | Minimum log level (DEBUG/INFO/WARN/ERROR/FATAL) |
+## Code Style
 
-### CLI Integration
+- **TypeScript strict mode** — no `any`, no `!` non-null assertions unless unavoidable, always handle nullable types explicitly
+- **ESM only** — all imports must use `.js` extension (e.g. `import { foo } from './bar.js'`)
+- **`null` over `undefined`** for missing data fields — matches the SEC EDGAR / financial data convention used throughout
+- **camelCase** for variables/functions, **PascalCase** for types/interfaces/classes, **SCREAMING_SNAKE_CASE** for top-level constants
+- No barrel re-exports that cause circular dependencies — import directly from the source file if needed
+- Prefer `interface` over `type` for object shapes; use `type` for unions, aliases, and utility types
 
-Pass `--harness` to `pnpm fetch` to use harness mode (structured errors, retry, pre-validate). Without the flag, legacy behavior is preserved.
+---
 
-## Reference Implementation
+## Architecture Rules
 
-`PRD.md` section 1.3 cites [https://github.com/ZhuLinsen/daily_stock_analysis](https://github.com/ZhuLinsen/daily_stock_analysis) as a reference for data sourcing and notification patterns to adapt for this project's needs.
+### Package Boundaries
+- `packages/core` — types and constants only, no runtime dependencies, no I/O
+- `packages/data` — all external API calls (SEC EDGAR, Yahoo Finance); never import from `packages/store` or `packages/engine`
+- `packages/store` — SQLite persistence only; no business logic, no external calls
+- `packages/harness` — pipeline primitives only; no domain knowledge about equities
+- `apps/cli` — orchestration only; delegates to packages, contains no business logic itself
 
-## v1 Exclusions (Do Not Implement)
+### Harness Pattern
+New data pipeline modules must follow the Generator-Evaluator pattern in `packages/harness/`:
+- Implement `ModuleGenerator<T>` and `Evaluator<T, M>`
+- Register via `HarnessOrchestrator.register(manifest)`
+- Pass data between modules via `ArtifactStore`, never via direct imports
+- P0 field failures must throw immediately — no silent null propagation
 
-- Feishu/messaging push notifications (v2)
-- Automated trading or order placement
-- Intraday/minute-level price data
-- Multi-user / SaaS features
+### Hard Truth Rule
+Financial fields (revenue, net income, gross margin, OCF, FCF, R&D, share count) must trace back to **SEC EDGAR XBRL**. If a value is unavailable, use `null` and display `缺失` in the UI. Never fabricate or estimate a missing value.
+
+---
+
+## Database
+
+- Schema lives in `packages/store/src/schema.ts` (Drizzle ORM)
+- New columns must be added to **both** the Drizzle schema **and** the `newSnapCols` migration array in `packages/store/src/db.ts` — missing this causes silent column drops
+- Never run raw SQL strings with user-provided input — use Drizzle's query builder
+
+---
+
+## Error Handling
+
+- Use typed error classes from `packages/data/src/errors/` for fetch failures
+- Throw at the boundary (data layer), catch and log at the orchestration layer (CLI commands)
+- Never swallow errors with empty `catch` blocks
+- Retryable errors must set `isRetryable: true` — the harness runner uses this flag
+
+---
+
+## SEC EDGAR / XBRL Gotchas
+
+- **Non-calendar fiscal years**: companies like MU (Micron, August FY) store Q1–Q3 of calendar year N under `fy=N+1`. Use the `fy ± 1` fallback in `extractValue` and `matchCalendarQuarter` — only as a fallback when exact match returns nothing
+- **Missing concepts**: some XBRL concepts (e.g. `InterestExpense`, `CostOfRevenue`) may have no entries for a given period — skip these in the evaluator rather than flagging as errors
+- **`freeCashFlow`** is a computed field, not a raw XBRL concept — exclude it from source consistency checks
+
+---
+
+## What Not to Do (v1 Scope)
+
+- No Feishu / messaging push notifications
+- No automated trading or order placement
+- No intraday / minute-level price data
+- No multi-user or SaaS features
