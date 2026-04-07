@@ -4,7 +4,9 @@ import { MVP_TICKER_SET, formatFinancialValue } from '@equitylens/core';
 import {
   YahooClient, fetchYahooFinancials, matchCalendarQuarter,
   SecEdgarClient, fetchCompanyFacts, assembleFinancialData,
-  DataCache, countNonNullFields, fetch10KData, fetch10QData,
+  DataCache, countNonNullFields, fetch10KData, fetch10QData, fetchRecent10QData,
+  FinancialDataModule,
+  DeterministicSnapshotEvaluator,
 } from '@equitylens/data';
 import { formatFinancialTable } from '@equitylens/data';
 import { getDb, getAllFinancialSnapshots, upsertTenKCache } from '@equitylens/store';
@@ -19,6 +21,7 @@ export const fetchCommand = new Command('fetch')
   .option('--history <years>', 'Fetch N years of history (1y=4q, 2y=8q, 3y=12q + annuals)', '0')
   .option('--force-refresh', 'Bypass cache and re-fetch from APIs', true)
   .option('--all', 'Show all cached periods as a multi-quarter table (no fetch)', false)
+  .option('--harness', 'Enable harness mode with deterministic validation and retry (EQUITYLENS_HARNESS_MODE)', false)
   .action(async (ticker: string, options) => {
     ticker = ticker.toUpperCase();
 
@@ -181,6 +184,55 @@ export const fetchCommand = new Command('fetch')
     // ── --history mode: fetch N years of all quarters + annuals ───────────────
     const historyYears = parseInt(options.history);
     if (historyYears > 0) {
+      const useHarness = options.harness || process.env['EQUITYLENS_HARNESS_MODE'] === 'true';
+
+      if (useHarness) {
+        // ── Harness mode: use FinancialDataModule ─────────────────────────────
+        console.log(`\n🔧 Harness mode enabled\n`);
+        const module = new FinancialDataModule({
+          harnessEnabled: true,
+          forceRefresh: options.forceRefresh,
+          minValidFields: 14, // 核心财务字段（deferredRevenue 等季报不披露，容忍缺失）
+        });
+
+        const result = await module.run(
+          [ticker],
+          CURRENT_YEAR - historyYears,
+          CURRENT_YEAR - 1,
+          {
+            forceRefresh: options.forceRefresh,
+            onProgress: (item, evalResult) => {
+              const status = evalResult.ok ? '✅' : '⚠️';
+              const score = evalResult.metadata?.score ?? '?';
+              const fields = evalResult.metadata?.nonNullCount ?? 0;
+              process.stdout.write(`  FY${item.year} Q${item.quarter} ${status} (score=${score}, fields=${fields})\n`);
+              if (evalResult.warnings.length > 0) {
+                for (const w of evalResult.warnings) {
+                  process.stdout.write(`    ⚡ ${w}\n`);
+                }
+              }
+              if (!evalResult.ok) {
+                for (const e of evalResult.errors) {
+                  process.stdout.write(`    ❌ ${e}\n`);
+                }
+              }
+            },
+          },
+        );
+
+        console.log(`\n✅ Harness fetch complete:\n`);
+        console.log(`   Passed:  ${result.stats.passed}`);
+        console.log(`   Failed:  ${result.stats.failed}`);
+        console.log(`   Retried: ${result.stats.retried}`);
+        console.log(`   Total:   ${result.stats.total}`);
+        console.log(`   Time:    ${result.stats.durationMs}ms\n`);
+
+        // Still fetch filing sections in harness mode
+        await fetchFilingSections(ticker, CURRENT_YEAR, CURRENT_YEAR - 1);
+        return;
+      }
+
+      // ── Legacy mode: direct fetch without harness ─────────────────────────────
       const quarters = [1, 2, 3, 4] as const;
       const periods: Array<{ year: number; quarter: number }> = [];
 
@@ -213,12 +265,13 @@ export const fetchCommand = new Command('fetch')
           }
         }
 
-        // Fetch SEC + Yahoo
+        // Fetch SEC + Yahoo (with structured error logging instead of silent catch)
         let secData = null;
         try {
           secData = await fetchCompanyFacts(secClient, ticker, year, quarter);
-        } catch {
-          /* skip */
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          console.log(`⚠️  SEC failed: ${msg}`);
         }
 
         let yahooData: Awaited<ReturnType<typeof fetchYahooFinancials>>[0] | null = null;
@@ -226,7 +279,7 @@ export const fetchCommand = new Command('fetch')
           const yahooResults = await fetchYahooFinancials(yahooClient, ticker);
           yahooData = matchCalendarQuarter(yahooResults, year, quarter);
         } catch {
-          /* skip */
+          /* non-critical, skip */
         }
 
         const assembled = assembleFinancialData(ticker, year, quarter, secData, yahooData);
@@ -247,90 +300,8 @@ export const fetchCommand = new Command('fetch')
 
       console.log(`\n✅ History fetch complete: ${fetched} fetched, ${skipped} cached, ${failed} no data\n`);
 
-      // ── Fetch 10-K filing sections (latest only, once per ticker) ───────────
-      console.log('📜 Fetching latest 10-K filing sections...');
-      const secClient2 = new SecEdgarClient();
-      const sections = await fetch10KData(secClient2, ticker);
-      if (sections) {
-        const filingYear = sections.filingDate ? parseInt(sections.filingDate.slice(0, 4), 10) : CURRENT_YEAR - 1;
-        upsertTenKCache({
-          ticker,
-          filingType: sections.filingType ?? '10-K',
-          year: filingYear,
-          filingDate: sections.filingDate ?? `${filingYear}-12-31`,
-          documentUrl: sections.documentUrl ?? '',
-          item1Business: sections.item1 ?? null,
-          item1ARiskFactors: sections.item1A ?? null,
-          item6SelectedFinData: sections.item6 ?? null,
-          item7MdAndA: sections.item7 ?? null,
-          item7AFactors: sections.item7A ?? null,
-          item8Financials: sections.item8 ?? null,
-          item9Controls: sections.item9Controls ?? null,
-          item2Properties: sections.item2 ?? null,
-          item3Legal: sections.item3 ?? null,
-          item4Mine: sections.item4 ?? null,
-          item5Market: sections.item5 ?? null,
-          item10Directors: sections.item10 ?? null,
-          item11Compensation: sections.item11 ?? null,
-          item12Security: sections.item12 ?? null,
-          item13Relationships: sections.item13 ?? null,
-          item14Principal: sections.item14 ?? null,
-          extractedGuidance: sections.extractedGuidance ? JSON.stringify(sections.extractedGuidance) : null,
-          fetchedAt: new Date().toISOString(),
-        } as Parameters<typeof upsertTenKCache>[0]);
-        console.log(`✅ 10-K (FY${filingYear}) sections stored\n`);
-      } else {
-        console.log('⚠️  Could not fetch 10-K sections\n');
-      }
-
-      // ── Fetch recent 10-Q filing sections ─────────────────────────────────
-      console.log('📜 Fetching recent 10-Q filing sections...');
-      const recent10QYears = [CURRENT_YEAR - 1, CURRENT_YEAR - 2];
-      let qFetched = 0;
-      for (const qy of recent10QYears) {
-        for (const q of [1, 2, 3, 4] as const) {
-          process.stdout.write(`  FY${qy} Q${q} 10-Q... `);
-          try {
-            const qSections = await fetch10QData(secClient2, ticker);
-            if (qSections && qSections.filingDate) {
-              const qFilingYear = parseInt(qSections.filingDate.slice(0, 4), 10);
-              upsertTenKCache({
-                ticker,
-                filingType: '10-Q',
-                year: qFilingYear,
-                filingDate: qSections.filingDate,
-                documentUrl: qSections.documentUrl ?? '',
-                item1Business: qSections.item1 ?? null,
-                item1ARiskFactors: qSections.item1A ?? null,
-                item6SelectedFinData: qSections.item6 ?? null,
-                item7MdAndA: qSections.item7 ?? qSections.item2 ?? null,
-                item7AFactors: qSections.item7A ?? null,
-                item8Financials: qSections.item8 ?? null,
-                item9Controls: qSections.item9Controls ?? null,
-                item2Properties: qSections.item2 ?? null,
-                item3Legal: qSections.item3 ?? null,
-                item4Mine: qSections.item4 ?? null,
-                item5Market: qSections.item5 ?? null,
-                item1Financials: qSections.item1Financials ?? null,
-                item2MdAndA: qSections.item2MdAndA ?? null,
-                item3Defaults: qSections.item3Defaults ?? null,
-                item4Controls: qSections.item4Controls ?? null,
-                extractedGuidance: qSections.extractedGuidance ? JSON.stringify(qSections.extractedGuidance) : null,
-                fetchedAt: new Date().toISOString(),
-              } as Parameters<typeof upsertTenKCache>[0]);
-              console.log(`✅ (${qSections.filingDate})`);
-              qFetched++;
-            } else {
-              console.log('⚠️  no filing found');
-            }
-          } catch (err) {
-            console.log(`⚠️  error: ${err instanceof Error ? err.message : err}`);
-          }
-          await new Promise(r => setTimeout(r, 250));
-        }
-      }
-      console.log(`\n✅ ${qFetched} 10-Q sections stored\n`);
-
+      // Fetch filing sections
+      await fetchFilingSections(ticker, CURRENT_YEAR, CURRENT_YEAR - 1);
       return;
     }
 
@@ -379,45 +350,107 @@ export const fetchCommand = new Command('fetch')
     const assembled = assembleFinancialData(ticker, year, quarter, secData, yahooData);
     cache.setFinancial(assembled);
 
-    // ── Also fetch and store latest 10-K filing sections ─────────────────────
-    console.log('\n📜 Fetching latest 10-K filing sections...');
-    const secClient2 = new SecEdgarClient();
-    const sections = await fetch10KData(secClient2, ticker);
-    if (sections) {
-      const filingYear = sections.filingDate ? parseInt(sections.filingDate.slice(0, 4), 10) : year;
-      upsertTenKCache({
-        ticker,
-        filingType: sections.filingType ?? '10-K',
-        year: filingYear,
-        filingDate: sections.filingDate ?? `${filingYear}-12-31`,
-        documentUrl: sections.documentUrl ?? '',
-        item1Business: sections.item1 ?? null,
-        item1ARiskFactors: sections.item1A ?? null,
-        item6SelectedFinData: sections.item6 ?? null,
-        item7MdAndA: sections.item7 ?? null,
-        item7AFactors: sections.item7A ?? null,
-        item8Financials: sections.item8 ?? null,
-        item9Controls: sections.item9A ?? null,
-        item2Properties: sections.item2 ?? null,
-        item3Legal: sections.item3 ?? null,
-        item4Mine: sections.item4 ?? null,
-        item5Market: sections.item5 ?? null,
-        item10Directors: sections.item10 ?? null,
-        item11Compensation: sections.item11 ?? null,
-        item12Security: sections.item12 ?? null,
-        item13Relationships: sections.item13 ?? null,
-        item14Principal: sections.item14 ?? null,
-        extractedGuidance: sections.extractedGuidance ?? null,
-        fetchedAt: new Date().toISOString(),
-      } as Parameters<typeof upsertTenKCache>[0]);
-      console.log(`✅ 10-K (FY${filingYear}) sections stored\n`);
-    } else {
-      console.log('⚠️  Could not fetch 10-K sections\n');
-    }
+    // Fetch filing sections
+    await fetchFilingSections(ticker, year, year);
 
     console.log('\n─── Financial Snapshot ───\n');
     printFinancialSnapshot(assembled);
   });
+
+/**
+ * Fetch and store 10-K and 10-Q filing sections for a ticker.
+ * Used by both history and single-period fetch modes.
+ */
+async function fetchFilingSections(ticker: string, fromYear: number, toYear: number): Promise<void> {
+  console.log('📜 Fetching latest 10-K filing sections...');
+  const secClient = new SecEdgarClient();
+  const sections = await fetch10KData(secClient, ticker);
+  if (sections) {
+    const filingYear = sections.filingDate ? parseInt(sections.filingDate.slice(0, 4), 10) : toYear;
+    upsertTenKCache({
+      ticker,
+      filingType: sections.filingType ?? '10-K',
+      year: filingYear,
+      filingDate: sections.filingDate ?? `${filingYear}-12-31`,
+      documentUrl: sections.documentUrl ?? '',
+      item1Business: sections.item1Business ?? null,
+      item1ARiskFactors: sections.item1ARiskFactors ?? null,
+      item6SelectedFinData: sections.item6SelectedFinData ?? null,
+      item7MdAndA: sections.item7MdAndA ?? null,
+      item7AFactors: sections.item7AFactors ?? null,
+      item8Financials: sections.item8Financials ?? null,
+      item9Controls: sections.item9Controls ?? null,
+      item2Properties: sections.item2Properties ?? null,
+      item3Legal: sections.item3Legal ?? null,
+      item4Mine: sections.item4Mine ?? null,
+      item5Market: sections.item5Market ?? null,
+      item10Directors: sections.item10Directors ?? null,
+      item11Compensation: sections.item11Compensation ?? null,
+      item12Security: sections.item12Security ?? null,
+      item13Relationships: sections.item13Relationships ?? null,
+      item14Principal: sections.item14Principal ?? null,
+      extractedGuidance: sections.extractedGuidance ?? null,
+      fetchedAt: new Date().toISOString(),
+    } as Parameters<typeof upsertTenKCache>[0]);
+    console.log(`✅ 10-K (FY${filingYear}) sections stored\n`);
+  } else {
+    console.log('⚠️  Could not fetch 10-K sections\n');
+  }
+
+  // Fetch recent 10-Q filing sections (up to 4 most recent distinct filings)
+  console.log('📜 Fetching recent 10-Q filing sections...');
+  let qFetched = 0;
+  try {
+    const recent10Qs = await fetchRecent10QData(secClient, ticker, 4);
+    for (const qSections of recent10Qs) {
+      if (!qSections.filingDate) continue;
+      const qFilingYear = parseInt(qSections.filingDate.slice(0, 4), 10);
+      const qMonth = parseInt(qSections.filingDate.slice(5, 7), 10);
+      let qQuarter = 0;
+      if (qMonth >= 1 && qMonth <= 3) qQuarter = 1;
+      else if (qMonth >= 4 && qMonth <= 6) qQuarter = 2;
+      else if (qMonth >= 7 && qMonth <= 9) qQuarter = 3;
+      else qQuarter = 4;
+
+      process.stdout.write(`  FY${qFilingYear} Q${qQuarter} 10-Q (${qSections.filingDate})... `);
+      try {
+        upsertTenKCache({
+          ticker,
+          filingType: '10-Q',
+          year: qFilingYear,
+          quarter: qQuarter,
+          filingDate: qSections.filingDate,
+          documentUrl: qSections.documentUrl ?? '',
+          item1Business: qSections.item1Business ?? null,
+          item1ARiskFactors: qSections.item1ARiskFactors ?? null,
+          item6SelectedFinData: qSections.item6SelectedFinData ?? null,
+          item7MdAndA: qSections.item2MdAndA ?? qSections.item7MdAndA ?? null,
+          item7AFactors: qSections.item7AFactors ?? null,
+          item8Financials: qSections.item8Financials ?? null,
+          item9Controls: qSections.item9Controls ?? null,
+          item2Properties: qSections.item2Properties ?? null,
+          item3Legal: qSections.item3Legal ?? null,
+          item4Mine: qSections.item4Mine ?? null,
+          item5Market: qSections.item5Market ?? null,
+          item1Financials: qSections.item1Financials ?? null,
+          item2MdAndA: qSections.item2MdAndA ?? qSections.item7MdAndA ?? null,
+          item3Defaults: qSections.item3Defaults ?? null,
+          item4Controls: qSections.item4Controls ?? null,
+          extractedGuidance: qSections.extractedGuidance ? JSON.stringify(qSections.extractedGuidance) : null,
+          fetchedAt: new Date().toISOString(),
+        } as Parameters<typeof upsertTenKCache>[0]);
+        console.log('✅');
+        qFetched++;
+      } catch (err) {
+        console.log(`⚠️  upsert error: ${err instanceof Error ? err.message : err}`);
+      }
+      await new Promise(r => setTimeout(r, 250));
+    }
+  } catch (err) {
+    console.log(`⚠️  10-Q fetch error: ${err instanceof Error ? err.message : err}`);
+  }
+  console.log(`\n✅ ${qFetched} 10-Q sections stored\n`);
+}
 
 function printFinancialSnapshot(data: FinancialSnapshot) {
   const rows: [string, string][] = [

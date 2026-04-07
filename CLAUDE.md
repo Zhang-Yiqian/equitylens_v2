@@ -55,6 +55,72 @@ This project is currently in **pre-development phase** — only `PRD.md` exists.
 - EOD pricing: daily
 - News: 1-hour cycle if enabled
 
+## Harness Architecture
+
+This project uses a unified **Generator-Evaluator** harness pattern for all data pipeline modules. See `packages/harness/` for the framework implementation.
+
+### Core Principles
+
+| Principle | Description |
+|---|---|
+| **Generator-Evaluator** | Generator yields items; Evaluator checks quality; Runner drives the retry loop |
+| **Hard Thresholds** | Critical field gaps fail immediately — no silent degradation |
+| **Self-Evaluation** | Each module validates its own output before passing it downstream |
+| **Structured Handoffs** | Modules communicate via `ArtifactStore` (KV store in `HarnessContext`), not implicit imports |
+| **Budget Tracking** | Token count, elapsed time, and item limits are enforced per-module |
+
+### Package Structure
+
+```
+packages/harness/src/
+├── primitives/
+│   ├── retry.ts          # Exponential backoff with jitter, maxAttempts, isRetryable predicate
+│   ├── telemetry.ts      # Structured logging (DEBUG/INFO/WARN/ERROR/FATAL), console + memory handlers
+│   ├── validation.ts     # Composable Rule<T> combinators (isDefined, inRange, hasField, etc.)
+│   └── budget.ts         # Budget tracking (tokens, time, items, retries)
+├── context/
+│   ├── artifact-store.ts # In-memory KV store for inter-module data passing
+│   └── context.ts        # HarnessContext: runId, artifactStore, telemetry, budget, config
+├── runner/
+│   ├── runner.ts         # Generator → Evaluator → retry loop; fromAsyncIterator/fromArray helpers
+│   └── types.ts          # Evaluator<T,M>, EvaluatorResult, RunnerRunResult, ModuleManifest
+├── evaluator/
+│   ├── deterministic.ts  # DeterministicSnapshotEvaluator: P0/P1/P2 field tiers, cross-field consistency, outlier detection
+│   └── probabilistic.ts  # LLMClassificationEvaluator, LLMScoringEvaluator (uses ANTHROPIC_API_KEY)
+└── module-registry.ts    # HarnessOrchestrator: topological sort, dependency ordering
+```
+
+### Key Abstractions
+
+- **`HarnessContext`** — shared across a run: `artifactStore`, `telemetry`, `budget`, `config`
+- **`Evaluator<T, M>`** — `evaluate(item: T, ctx: HarnessContext): Promise<EvaluatorResult<M>>` → `{ ok, canRetry, errors, warnings, metadata }`
+- **`ModuleManifest<T, R, M>`** — describes a module: name, generator, optional evaluator, dependencies, priority
+- **`ArtifactStore`** — modules write/read artifacts by key, no import dependency between modules
+
+### Adding a New Module
+
+Implement `ModuleGenerator<T>` and `Evaluator<T, M>`, then register with `HarnessOrchestrator`:
+
+```typescript
+const manifest = defineModule('my-module', myGenerator, {
+  dependencies: ['financial-data'], // runs after
+  evaluator: myEvaluator,
+});
+orchestrator.register(manifest);
+```
+
+### Environment Variables
+
+| Variable | Default | Description |
+|---|---|---|
+| `EQUITYLENS_HARNESS_MODE` | `false` | Enable harness mode for CLI fetch commands |
+| `EQUITYLENS_HARNESS_EVALUATOR_AGENT` | `false` | Enable LLM-powered evaluator (requires `ANTHROPIC_API_KEY`) |
+| `EQUITYLENS_HARNESS_LOG_LEVEL` | `INFO` | Minimum log level (DEBUG/INFO/WARN/ERROR/FATAL) |
+
+### CLI Integration
+
+Pass `--harness` to `pnpm fetch` to use harness mode (structured errors, retry, pre-validate). Without the flag, legacy behavior is preserved.
+
 ## Reference Implementation
 
 `PRD.md` section 1.3 cites [https://github.com/ZhuLinsen/daily_stock_analysis](https://github.com/ZhuLinsen/daily_stock_analysis) as a reference for data sourcing and notification patterns to adapt for this project's needs.

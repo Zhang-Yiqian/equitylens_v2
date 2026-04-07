@@ -1,0 +1,11 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "dist",
+    "rootDir": "src",
+    "paths": {
+      "@equitylens/core": ["../core/dist"]
+    }
+  },
+  "include": ["src"]
+}

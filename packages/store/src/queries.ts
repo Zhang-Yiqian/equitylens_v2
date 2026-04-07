@@ -134,7 +134,7 @@ export function upsertTenKCache(data: typeof tenKCache.$inferInsert) {
   return db.insert(tenKCache)
     .values(data)
     .onConflictDoUpdate({
-      target: [tenKCache.ticker, tenKCache.filingType, tenKCache.year],
+      target: [tenKCache.ticker, tenKCache.filingType, tenKCache.year, tenKCache.quarter],
       set: { ...data, fetchedAt: new Date().toISOString() },
     })
     .run();

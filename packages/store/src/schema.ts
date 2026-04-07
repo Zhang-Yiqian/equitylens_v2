@@ -17,6 +17,7 @@ export const tenKCache = sqliteTable('ten_k_cache', {
   ticker: text('ticker').notNull(),
   filingType: text('filing_type').notNull().default('10-K'), // '10-K' | '10-Q' | '8-K'
   year: integer('year').notNull(), // filing date year, e.g. 2025
+  quarter: integer('quarter').notNull().default(0), // 0 = annual/n/a
   filingDate: text('filing_date').notNull(),
   documentUrl: text('document_url').notNull(),
   // ── 10-K Business & Risk (existing) ────────────────────────────────────────
@@ -38,12 +39,17 @@ export const tenKCache = sqliteTable('ten_k_cache', {
   item12Security: text('item12_security'),
   item13Relationships: text('item13_relationships'),
   item14Principal: text('item14_principal'),
+  // ── 10-Q specific sections ──────────────────────────────────────────────────
+  item1Financials: text('item1_financials'),    // 10-Q Item 1 – Financial Statements
+  item2MdAndA: text('item2_md_and_a'),          // 10-Q Item 2 – MD&A
+  item3Defaults: text('item3_defaults'),        // 10-Q Item 3 – Quantitative/Defaults
+  item4Controls: text('item4_controls'),        // 10-Q Item 4 – Controls
   // ── Extracted quantitative guidance ──────────────────────────────────────────
   extractedGuidance: text('extracted_guidance'), // JSON string
   // ── Metadata ────────────────────────────────────────────────────────────────
   fetchedAt: text('fetched_at').notNull(),
 }, (table) => [
-  uniqueIndex('uq_ten_k_cache_ticker_type_year').on(table.ticker, table.filingType, table.year),
+  uniqueIndex('uq_ten_k_cache_ticker_type_year_quarter').on(table.ticker, table.filingType, table.year, table.quarter),
 ]);
 
 export const financialSnapshots = sqliteTable('financial_snapshots', {
@@ -128,6 +134,8 @@ export const financialSnapshots = sqliteTable('financial_snapshots', {
   excessTaxBenefit: real('excess_tax_benefit'),
   // ── Field Sources ─────────────────────────────────────────────────────────
   fieldSources: text('field_sources'), // JSON string of FieldSources
+  // ── Raw SEC XBRL (for source-consistency verification) ───────────────────
+  rawSecFacts: text('raw_sec_facts'), // Original SEC company facts JSON
 }, (table) => [
   uniqueIndex('uq_snapshots_ticker_period').on(table.ticker, table.year, table.quarter),
 ]);

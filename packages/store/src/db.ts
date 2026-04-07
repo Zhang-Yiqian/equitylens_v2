@@ -109,6 +109,8 @@ function initTables(sqlite: Database.Database): void {
       acquisition_related_cash REAL,
       -- Phase 3: Field Sources
       field_sources TEXT,
+      -- Raw SEC XBRL (for source-consistency verification)
+      raw_sec_facts TEXT,
       -- Equity / Comprehensive (new)
       accounts_payable REAL,
       accumulated_other_comprehensive_income REAL,
@@ -245,6 +247,8 @@ function initTables(sqlite: Database.Database): void {
     ['acquisition_related_cash', 'REAL'],
     // Field Sources
     ['field_sources', 'TEXT'],
+    // Raw SEC XBRL (for source-consistency verification)
+    ['raw_sec_facts', 'TEXT'],
     // Equity / Comprehensive (new)
     ['accounts_payable', 'REAL'],
     ['accumulated_other_comprehensive_income', 'REAL'],
@@ -354,14 +358,14 @@ function initTables(sqlite: Database.Database): void {
 
   // ── ten_k_cache migration ──────────────────────────────────────────────────
   // Detect the current UNIQUE constraint on ten_k_cache.
-  // The auto-generated index name tells us which constraint is active:
   //   - sqlite_autoindex_ten_k_cache_1 → old UNIQUE(ticker)
-  //   - uq_ten_k_cache_ticker_type_year → new composite index
+  //   - uq_ten_k_cache_ticker_type_year → intermediate 3-col index (missing quarter)
+  //   - uq_ten_k_cache_ticker_type_year_quarter → final 4-col index
   const tenKIndexes = (sqlite.pragma('index_list(ten_k_cache)') as Array<{ name: string; unique: number }>);
-  const hasNewCompositeIdx = tenKIndexes.some(i => i.name === 'uq_ten_k_cache_ticker_type_year');
+  const hasFinalIdx = tenKIndexes.some(i => i.name === 'uq_ten_k_cache_ticker_type_year_quarter');
   const hasOldTickerIdx = tenKIndexes.some(i => i.name.startsWith('sqlite_autoindex_ten_k_cache'));
 
-  if (!hasNewCompositeIdx && (hasOldTickerIdx || tenKIndexes.length === 0)) {
+  if (!hasFinalIdx && (hasOldTickerIdx || tenKIndexes.length === 0)) {
     // Old UNIQUE(ticker) constraint is active (or no index at all).
     // SQLite cannot ALTER a UNIQUE constraint — rebuild the table.
     const cols = new Set(
@@ -369,13 +373,14 @@ function initTables(sqlite: Database.Database): void {
     );
     // Rename old table
     sqlite.exec(`ALTER TABLE ten_k_cache RENAME TO ten_k_cache_old`);
-    // Create new table with correct composite UNIQUE constraint
+    // Create new table with correct composite UNIQUE constraint + quarter column
     sqlite.exec(`
       CREATE TABLE ten_k_cache (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         ticker TEXT NOT NULL,
         filing_type TEXT NOT NULL DEFAULT '10-K',
         year INTEGER NOT NULL,
+        quarter INTEGER NOT NULL DEFAULT 0,
         filing_date TEXT NOT NULL,
         document_url TEXT NOT NULL,
         item1_business TEXT,
@@ -403,13 +408,13 @@ function initTables(sqlite: Database.Database): void {
       )
     `);
     sqlite.exec(
-      `CREATE UNIQUE INDEX uq_ten_k_cache_ticker_type_year
-       ON ten_k_cache(ticker, filing_type, year)`
+      `CREATE UNIQUE INDEX uq_ten_k_cache_ticker_type_year_quarter
+       ON ten_k_cache(ticker, filing_type, year, quarter)`
     );
     // Copy data from old table (year may be NULL for old rows — backfill from filing_date)
     sqlite.exec(`
       INSERT OR IGNORE INTO ten_k_cache
-        (id, ticker, filing_type, year, filing_date, document_url,
+        (id, ticker, filing_type, year, quarter, filing_date, document_url,
          item1_business, item1a_risk_factors, item6_selected_fin_data,
          item7_md_and_a, item7a_factors, item8_financials, item9_controls,
          item2_properties, item3_legal, item4_mine, item5_market,
@@ -421,6 +426,7 @@ function initTables(sqlite: Database.Database): void {
         id, ticker,
         COALESCE(filing_type, '10-K'),
         CAST(substr(filing_date, 1, 4) AS INTEGER),
+        0,
         filing_date, document_url,
         item1_business, item1a_risk_factors, item6_selected_fin_data,
         item7_md_and_a, item7a_factors, item8_financials, item9_controls,
@@ -432,16 +438,19 @@ function initTables(sqlite: Database.Database): void {
       FROM ten_k_cache_old
     `);
     sqlite.exec(`DROP TABLE ten_k_cache_old`);
-  } else if (!hasNewCompositeIdx) {
-    // Table exists with no recognized index — add missing 10-Q columns and backfill year
+  } else if (!hasFinalIdx) {
+    // Table exists with old 3-col index (or no recognized index) — add quarter column and rebuild index
     const curCols = new Set(
       (sqlite.pragma('table_info(ten_k_cache)') as Array<{ name: string }>).map(r => r.name)
     );
-    if (curCols.has('year')) {
-      sqlite.exec(
-        `UPDATE ten_k_cache SET year = CAST(substr(filing_date, 1, 4) AS INTEGER) WHERE year IS NULL`
-      );
+    // Add quarter column if missing
+    if (!curCols.has('quarter')) {
+      sqlite.exec(`ALTER TABLE ten_k_cache ADD COLUMN quarter INTEGER NOT NULL DEFAULT 0`);
     }
+    // Backfill year from filing_date if needed
+    sqlite.exec(
+      `UPDATE ten_k_cache SET year = CAST(substr(filing_date, 1, 4) AS INTEGER) WHERE year IS NULL`
+    );
     const addCols: Array<[string, string]> = [
       ['item1_financials', 'TEXT'],
       ['item2_md_and_a', 'TEXT'],
@@ -453,13 +462,17 @@ function initTables(sqlite: Database.Database): void {
         sqlite.exec(`ALTER TABLE ten_k_cache ADD COLUMN ${col} ${def}`);
       }
     }
-    // Create the new composite index
+    // Drop old index if exists and create new 4-col index
+    const oldIdx = tenKIndexes.find(i => i.name === 'uq_ten_k_cache_ticker_type_year');
+    if (oldIdx) {
+      sqlite.exec(`DROP INDEX uq_ten_k_cache_ticker_type_year`);
+    }
     sqlite.exec(
-      `CREATE UNIQUE INDEX IF NOT EXISTS uq_ten_k_cache_ticker_type_year
-       ON ten_k_cache(ticker, filing_type, year)`
+      `CREATE UNIQUE INDEX IF NOT EXISTS uq_ten_k_cache_ticker_type_year_quarter
+       ON ten_k_cache(ticker, filing_type, year, quarter)`
     );
   }
-  // else: new composite index already exists — nothing to do
+  // else: final 4-col index already exists — nothing to do
 
   // ── Phase 3: industry_metrics ───────────────────────────────────────────
   sqlite.exec(`

@@ -15,8 +15,7 @@
   "dependencies": {
     "@equitylens/core": "workspace:*",
     "@equitylens/data": "workspace:*",
-    "@equitylens/engine": "workspace:*",
-    "@equitylens/report": "workspace:*",
+    "@equitylens/harness": "workspace:*",
     "@equitylens/store": "workspace:*",
     "@equitylens/universe": "workspace:*",
     "commander": "^14.0.0",

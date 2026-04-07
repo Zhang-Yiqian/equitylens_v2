@@ -97,6 +97,8 @@ export interface FinancialSnapshot {
   source: DataSource;
   fetchedAt: string;
   fieldSources: FieldSources | null;
+  /** Raw SEC XBRL company facts JSON — used for source-consistency verification */
+  rawSecFacts: string | null;
 
   // ── Income Statement (raw) ─────────────────────────────────────────────────
   revenue: number | null;
@@ -375,9 +377,29 @@ export function matchCalendarQuarter(
   quarter: number,
 ): YahooFinancials | null {
   const range = calendarQuarterRange(year, quarter);
-  return results.find(f => {
+  const found = results.find(f => {
     const date = f.income?.date;
     if (!date) return false;
     return date >= range.start && date < range.end;
-  }) ?? null;
+  });
+  if (found) return found;
+
+  // Fiscal year offset fallback: companies with non-calendar fiscal years (e.g., MU
+  // ends Aug) store Q1-Q3 in XBRL under fy=year+1, and Q4 under fy=year+1 as well
+  // (since Q4 ends in the NEXT fiscal year). Try adjacent fiscal years.
+  const offsetFys = quarter < 4
+    ? [year - 1, year + 1]
+    : [year + 1];
+
+  for (const fy of offsetFys) {
+    const altRange = calendarQuarterRange(fy, quarter);
+    const alt = results.find(f => {
+      const date = f.income?.date;
+      if (!date) return false;
+      return date >= altRange.start && date < altRange.end;
+    });
+    if (alt) return alt;
+  }
+
+  return null;
 }

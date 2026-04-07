@@ -1,4 +1,8 @@
-import 'dotenv/config';
+import { config } from 'dotenv';
+import { resolve, dirname } from 'path';
+import { fileURLToPath } from 'url';
+// Always load .env from repo root (dist/index.js → apps/cli → repo root = ../../..)
+config({ path: resolve(dirname(fileURLToPath(import.meta.url)), '../../../.env') });
 import { Command } from 'commander';
 import { listCommand } from './commands/list.js';
 import { fetchCommand } from './commands/fetch.js';
